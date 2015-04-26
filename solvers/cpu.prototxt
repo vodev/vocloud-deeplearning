@@ -1,0 +1,22 @@
+##
+## Testing CPU solver with less iterations to save some time in testing
+##
+## This is a showcase of minimalist solver settings
+##
+## author: Tomas Peterka
+##
+
+# the most important switch - train on CPU or GPU?
+solver_mode: CPU
+
+base_lr: 0.01     # learning rate
+lr_policy: "step" # learning rate policy: drop the learning rate in "steps"
+stepsize: 10      # learning rate drops every # iterations
+gamma: 0.5        # learning rate gets multiplied by # every `stepsize`
+momentum: 0.9     # parameters change will have momentum from previous iteration
+
+max_iter: 100     # train for # of iterations in total
+
+display:       10 # display stats every # of iterations
+test_interval: 25 # launch testing of trained net every # iterations
+

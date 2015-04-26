@@ -1,0 +1,24 @@
+# GPU solver with less iterations to save some time in testing
+#
+# author: Tomas Peterka
+
+net: "models/raw1997.prototxt"
+
+base_lr: 0.01        # begin training at a learning rate of 0.01 = 1e-2
+lr_policy: "step"    # learning rate policy: drop the learning rate in "steps"
+                     # by a factor of gamma every stepsize iterations
+gamma: 0.1           # drop the learning rate by a factor of 10
+                     # (i.e., multiply it by a factor of gamma = 0.1)
+stepsize: 2500       # drop the learning rate every 2500 iterations
+max_iter: 10000      # train for 10K iterations total
+momentum: 0.9
+
+test_state: { stage: 'test-on-train' }
+test_iter: 500
+
+snapshot: 5000
+snapshot_prefix: "snapshots/raw1997gpu"  # where to save snapshots (relative to CWD)
+snapshot_diff: false                     # good for debuging
+snapshot_after_train: true               # save the final model
+
+solver_mode: GPU

@@ -1,0 +1,113 @@
+#    INPUT -> CONV -> POOL -> [FLATTEN -> SIGMOID] -> INNER_PRODUCT -> SOFTMAX
+#
+#
+#
+#
+#
+
+name: "raw1997"
+layer {
+  # The memory data layer reads data directly from memory, without copying it. In order to use it,
+  # one must call MemoryDataLayer::Reset
+  name: "raw1997"
+  type: "Data"
+  # used to be type: "Memory"
+  data_param {
+    source: "dbs/raw1997_leveldb/train"
+    backend: LEVELDB
+    batch_size: 256
+  }
+  include {
+    phase: TRAIN
+  }
+  top: "data"
+  top: "label"
+}
+layer {
+  name: "raw1997"
+  type: "Data"
+  top: "data"
+  top: "label"
+  include {
+    phase: TEST
+    stage: "test-on-train"
+  }
+  data_param {
+    source: "dbs/raw1997_leveldb/test"
+    backend: LEVELDB
+    batch_size: 256
+  }
+}
+layer {
+  name: "conv"
+  type: "Convolution"
+  bottom: "data"
+  top: "conv1"
+  convolution_param {
+    num_output: 7     # learn 7 filters -- (hopefully angles of possible direction of spectral line)
+    kernel_w: 50
+    kernel_h: 1
+    stride_w: 5
+    stride_h: 1
+#   param {
+#     lr_mult: 2
+#   }
+    weight_filler {
+      type: "xavier"
+    }
+    bias_filler {
+      type: "constant"
+    }
+  }
+}
+layer {
+  name: "pool"
+  type: "Pooling"
+  bottom: "conv1"
+  top: "pool1"
+  pooling_param {
+    pool: MAX
+    kernel_w: 5
+    kernel_h: 1
+  }
+}
+layer {
+  name: "ip"
+  type: "InnerProduct"
+  bottom: "pool1"
+  top: "guess"
+  param {
+    lr_mult: 1
+  }
+  param {
+    lr_mult: 2
+  }
+  inner_product_param {
+    num_output: 5
+    weight_filler {
+      type: "xavier"
+    }
+    bias_filler {
+      type: "constant"
+    }
+  }
+}
+layer {
+  name: "accuracy"
+  type: "Accuracy"
+  bottom: "guess"
+  bottom: "label"
+  top: "accuracy"
+  include {
+    phase: TEST
+  }
+}
+layer {
+  name: "loss"
+  type: "SoftmaxWithLoss"
+  bottom: "guess"
+  bottom: "label"
+  top: "loss"
+  loss_weight: 1       # full contribution to the loss value
+}
+
