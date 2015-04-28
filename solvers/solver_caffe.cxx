@@ -23,20 +23,9 @@ using caffe::Blob;
 namespace vodigger {
 
 
-void SolverCaffe::compute_right_size(std::shared_ptr<Feeder>& feeder,
-                                     Phase phase,
-                                     caffe::MemoryDataParameter *mdp)
-{
-  mdp->set_batch_size(feeder->nums(phase, BATCH)); // this needs tuning though!
-  mdp->set_channels(feeder->nums(phase, CHANNEL));
-  mdp->set_height(feeder->nums(phase, HEIGHT));
-  mdp->set_width(feeder->nums(phase, WIDTH));
-}
-
-
 SolverCaffe::SolverCaffe(const bpt::ptree& properties,
-                         std::shared_ptr<Feeder>& feeder,
-                         std::shared_ptr<Source>& source) : Solver(properties, feeder, source)
+                                std::shared_ptr<Feeder>& feeder,
+                                std::shared_ptr<Source>& source) : Solver(properties, feeder, source)
 {
   // construct path to trained model
   bfs::path snapshot_path = bfs::path(properties.get<std::string>("parameters.model")).replace_extension(bfs::path(".protobin"));
@@ -71,42 +60,48 @@ SolverCaffe::SolverCaffe(const bpt::ptree& properties,
     delete model_stream;
   }
 
-  CHECK(std::string("MemoryData").compare(net_params.layer(0).type()) == 0) <<
-    "First layer has to be of type=\"MemoryData\"";
+  CHECK(properties.get<std::string>("data.train", "").empty() ||
+        source->exists(properties.get<std::string>("data.train"))) << "Train data not readable";
+  CHECK(properties.get<std::string>("data.test", "").empty() ||
+        source->exists(properties.get<std::string>("data.test"))) << "Test data not readable";
+  CHECK(properties.get<std::string>("data.guess", "").empty() ||
+        source->exists(properties.get<std::string>("data.guess"))) << "Guess data not readable";
 
-  caffe::MemoryDataParameter* mdp = net_params.mutable_layer(0)->mutable_memory_data_param();
-  if(source_->exists(snapshot_filename_))
-  {
-    if(!properties.get<std::string>("data.guess", "").empty())
-      this->compute_right_size(feeder, GUESS, mdp);
-    else
-      this->compute_right_size(feeder, TEST, mdp);
-  } else {
-    this->compute_right_size(feeder, TRAIN, mdp);
-  }
+  CHECK(source->exists(properties.get<std::string>("data.guess")) ||
+        source->exists(snapshot_filename_)) << "Either training file or a snapshot has to exist";
 
-  if(std::string("MemoryData").compare(net_params.layer(1).type()) == 0)
-  {
-    mdp = net_params.mutable_layer(1)->mutable_memory_data_param();
-    if(source_->exists(snapshot_filename_))
-    {
-      if(!properties.get<std::string>("data.test", "").empty())
-        this->compute_right_size(feeder, TEST, mdp);
-      else
-        this->compute_right_size(feeder, GUESS, mdp);
-    } else {
-      this->compute_right_size(feeder, TRAIN, mdp);
-    }
-  }
 
-  // first, set TRAIN state of the network
   caffe::NetState net_state;
+  caffe::BigDataParameter* mdp = net_params.mutable_layer(0)->mutable_big_data_param();
+
+  // instantiate TRAIN network only when there is no snapshot
+  if(!source->exists(snapshot_filename_))
+  {
+    mdp->set_source( source->absolutize(properties.get<std::string>("data.train")) );
+  } else {
+    mdp->set_source( source->absolutize(properties.get<std::string>("data.guess")) );
+    if(mdp->has_label()) mdp->clear_label();
+  }
+  // guess and train have the same phase -- TRAIN
   net_state.set_phase(caffe::TRAIN);
   net_params.mutable_state()->CopyFrom(net_state);
-  // instantiate TRAIN net
-  net_ = new caffe::Net<float>(net_params);
-  // if there is pretrained model then update the main model (net_) with those weights
-  if(source_->exists(snapshot_filename_))
+  net_ = new caffe::Net<Dtype>(net_params);
+
+  // if there are data to test on, instantiate a testing network
+  if(!properties.get<std::string>("data.test", "").empty())
+  {
+    if(std::string("BigData").compare(net_params.layer(1).type()) == 0)
+    {
+      mdp = net_params.mutable_layer(1)->mutable_big_data_param();
+      mdp->set_source( source->absolutize(properties.get<std::string>("data.test")) );
+    }
+    net_state.set_phase(caffe::TEST);
+    net_params.mutable_state()->CopyFrom(net_state);
+    test_net_ = new caffe::Net<Dtype>(net_params);
+  }
+
+  // if there is a pretrained model then put it into net_
+  if(source->exists(snapshot_filename_))
   {
     std::istream* snapshot_stream = source->read(this->snapshot_filename_);
     google::protobuf::io::IstreamInputStream gis {snapshot_stream};
@@ -114,79 +109,69 @@ SolverCaffe::SolverCaffe(const bpt::ptree& properties,
     this->net_->CopyTrainedLayersFrom(net_weights);
   }
 
-  const vector<boost::shared_ptr<Blob<float> > >& net_data = this->net_->params();
+  const vector<boost::shared_ptr<Blob<Dtype> > >& net_data = this->net_->params();
   history_.clear();
   update_.clear();
   temp_.clear();
   for (int i = 0; i < net_data.size(); ++i) {
     const vector<int>& shape = net_data[i]->shape();
-    history_.push_back(std::shared_ptr<Blob<float> >(new Blob<float>(shape)));
-    update_.push_back(std::shared_ptr<Blob<float> >(new Blob<float>(shape)));
-    temp_.push_back(std::shared_ptr<Blob<float> >(new Blob<float>(shape)));
+    history_.push_back(std::shared_ptr<Blob<Dtype> >(new Blob<Dtype>(shape)));
+    update_.push_back(std::shared_ptr<Blob<Dtype> >(new Blob<Dtype>(shape)));
+    temp_.push_back(std::shared_ptr<Blob<Dtype> >(new Blob<Dtype>(shape)));
   }
-
-  // instantiate testing net (with accuracy layer and stuff)
-  net_state.set_phase(caffe::TEST);
-  net_params.mutable_state()->CopyFrom(net_state);
-  test_net_ = new caffe::Net<float>(net_params);
-
 }
 
 
-SolverCaffe::~SolverCaffe()
+
+SolverCaffe::~SolverCaffe() noexcept
 {
-    if(this->net_ != nullptr) {
-      delete this->net_;
-      this->net_ = nullptr;
-    }
-    if(this->test_net_ != nullptr) {
-      delete this->test_net_;
-      this->test_net_ = nullptr;
-    }
+    if(this->net_ != nullptr) delete this->net_;
+    if(this->test_net_ != nullptr) delete this->test_net_;
 }
+
 
 
 void SolverCaffe::run(std::ostream& output)
 {
-  if(!source_->exists(snapshot_filename_))
+  if(!this->source_->exists(snapshot_filename_))
   {
-    CHECK_GT(feeder_->nums(TRAIN), 0) << "There are no data to train and no pre-trained model!";
     train_(output);
     snapshot_();
   }
   // now we have to have a trained network
-  if(feeder_->nums(TEST) > 0) test_(output);
-  if(feeder_->nums(GUESS) > 0) guess_(output);
+  if(test_net_ != nullptr) test_(output);
+  guess_(output);
 }
+
 
 
 void SolverCaffe::snapshot_()
 {
   caffe::NetParameter net_data;
   net_->ToProto(&net_data, false);
-  std::ostream *sout = source_->write(snapshot_filename_);
+  std::ostream *sout = this->source_->write(snapshot_filename_);
   CHECK(net_data.SerializeToOstream(sout));
   delete sout;
 }
 
 
+
 void SolverCaffe::train_(std::ostream& output)
 {
-  float loss = .0, smoothloss = .0;
-  float rate = 0.01;
+  Dtype loss = .0, smoothloss = .0;
+  vector<Blob<Dtype>*> bottom_vec;
   LOG(INFO) << "Starting network training";
 
   // obtain a reference to the input layer so we can sneak in some data into it's memory
-  boost::shared_ptr<caffe::Layer<float> > input_layer = this->net_->layers()[0];
-  caffe::MemoryDataLayer<float> *input_memory_layer = dynamic_cast<caffe::MemoryDataLayer<float>*>(input_layer.get());
+  // boost::shared_ptr<caffe::Layer<Dtype> > input_layer = this->net_->layers()[0];
+  // caffe::MemoryDataLayer<Dtype> *input_memory_layer = dynamic_cast<caffe::MemoryDataLayer<Dtype>*>(input_layer.get());
 
-  input_memory_layer->set_batch_size(feeder_->nums(TRAIN));
-  input_memory_layer->Reset( feeder_->data(TRAIN), feeder_->labels(TRAIN), feeder_->nums(TRAIN) );
+  // input_memory_layer->set_batch_size(feeder_->nums(TRAIN));
+  // input_memory_layer->Reset( feeder_->data(TRAIN), feeder_->labels(TRAIN), feeder_->nums(TRAIN) );
 
   for(size_t iter = 0; iter <= params_.max_iter(); ++iter)
   {
-    net_->ForwardPrefilled(&loss);
-    net_->Backward();
+    net_->ForwardBackward(bottom_vec);
     this->GDS_(iter);
     net_->Update();
 
@@ -204,6 +189,7 @@ void SolverCaffe::train_(std::ostream& output)
 }
 
 
+
 void SolverCaffe::GDS_(int iter)
 {
     // get the learning rate
@@ -211,9 +197,9 @@ void SolverCaffe::GDS_(int iter)
                                                     int(iter / this->params_.stepsize()));
 
     // compute update value of network parameters (weights)
-    const std::vector<boost::shared_ptr<Blob<float> > >& net_params = this->net_->params();
-    const std::vector<float>& net_params_lr = this->net_->params_lr();
-    const std::vector<float>& net_params_weight_decay =
+    const std::vector<boost::shared_ptr<Blob<Dtype> > >& net_params = this->net_->params();
+    const std::vector<Dtype>& net_params_lr = this->net_->params_lr();
+    const std::vector<Dtype>& net_params_weight_decay =
         this->net_->params_weight_decay();
 
     // ClipGradients();
@@ -277,27 +263,32 @@ void SolverCaffe::GDS_(int iter)
       }
 }
 
+
+
 void SolverCaffe::test_(std::ostream& output)
 {
-  float loss = 0;
+  Dtype loss = 0;
   this->test_net_->ShareTrainedLayersWith(net_);
+  vector<Blob<Dtype>*> bottom_vec;
+
   // initialize data of MemoryDataLayer by supplying a vector of data
-  boost::shared_ptr<caffe::Layer<float> > input_layer = this->test_net_->layers()[0];
-  caffe::MemoryDataLayer<float> *input_memory_layer = dynamic_cast<caffe::MemoryDataLayer<float>*>(input_layer.get());
+  // boost::shared_ptr<caffe::Layer<Dtype> > input_layer = this->test_net_->layers()[0];
+  // caffe::MemoryDataLayer<Dtype> *input_memory_layer = dynamic_cast<caffe::MemoryDataLayer<Dtype>*>(input_layer.get());
 
-  input_memory_layer->set_batch_size(feeder_->nums(TEST));
-  input_memory_layer->Reset( feeder_->data(TEST), feeder_->labels(TEST), feeder_->nums(TEST) );
+  // input_memory_layer->set_batch_size(feeder_->nums(TEST));
+  // input_memory_layer->Reset( feeder_->data(TEST), feeder_->labels(TEST), feeder_->nums(TEST) );
 
-  test_net_->ForwardPrefilled(&loss);
+  test_net_->Forward(bottom_vec, &loss);
 
   // Get probabilities
-  // const boost::shared_ptr<Blob<float> >& labels = test_net_->blob_by_name("guess");
-  // const float* labels_data = labels->cpu_data();
+  // const boost::shared_ptr<Blob<Dtype> >& labels = test_net_->blob_by_name("guess");
+  // const Dtype* labels_data = labels->cpu_data();
 
-  const vector<Blob<float>*>& result = test_net_->output_blobs();
+  const vector<Blob<Dtype>*>& result = test_net_->output_blobs();
   int score_index = 0;
   for (int j = 0; j < result.size(); ++j) {
-    const float* result_vec = result[j]->cpu_data();
+    if(result[j]->count() > 10) continue;
+    const Dtype* result_vec = result[j]->cpu_data();
     const string& output_name =
         test_net_->blob_names()[test_net_->output_blob_indices()[j]];
     const float loss_weight =
@@ -316,24 +307,31 @@ void SolverCaffe::test_(std::ostream& output)
 }
 
 
+/**
+* It is necessary to do as many iterations as there are chunks of source data
+**/
+
 void SolverCaffe::guess_(std::ostream& output)
 {
-  float loss = 0;
-  float *zeroes, *labels;
+  Dtype loss = 0;
+  vector<Blob<Dtype>*> bottom_vec;
+
+  // Dtype *zeroes, *labels;
 
   // initialize data of MemoryDataLayer by supplying a vector of data
-  boost::shared_ptr<caffe::Layer<float> > input_layer = this->net_->layers()[0];
-  caffe::MemoryDataLayer<float> *input_memory_layer = dynamic_cast<caffe::MemoryDataLayer<float>*>(input_layer.get());
+  // boost::shared_ptr<caffe::Layer<Dtype> > input_layer = this->net_->layers()[0];
+  // caffe::MemoryDataLayer<Dtype> *input_memory_layer = dynamic_cast<caffe::MemoryDataLayer<Dtype>*>(input_layer.get());
 
-  labels = feeder_->labels(GUESS);
-  zeroes = new float[feeder_->nums(GUESS)];
-  std::memset(zeroes, (float)0, sizeof(*zeroes) * feeder_->nums(GUESS));
+  // labels = feeder_->labels(GUESS);
+  // zeroes = new Dtype[feeder_->nums(GUESS)];
+  // std::memset(zeroes, (Dtype)0, sizeof(*zeroes) * feeder_->nums(GUESS));
 
   // prefill data into TRAINed network
-  input_memory_layer->set_batch_size(feeder_->nums(GUESS));
-  input_memory_layer->Reset( feeder_->data(GUESS), zeroes, feeder_->nums(GUESS) );
+  // input_memory_layer->set_batch_size(feeder_->nums(GUESS));
+  // input_memory_layer->Reset( feeder_->data(GUESS), zeroes, feeder_->nums(GUESS) );
 
-  std::vector<Blob<float>*> dataout = net_->ForwardPrefilled(&loss);
+  net_->Forward(bottom_vec, &loss);
+  std::vector<Blob<Dtype>*> dataout = net_->output_blobs();
 
   output << "============= guess results ==============" << std::endl;
   for(int b = 0; b < dataout.size(); ++b)
@@ -349,14 +347,15 @@ void SolverCaffe::guess_(std::ostream& output)
     int outer_num = dataout[b]->count(0, 1);
     int prob_step = dataout[b]->count(1, 2);
     int inner_num = dataout[b]->count(2);
-    const float* results = dataout[b]->cpu_data();
+    const Dtype* results = dataout[b]->cpu_data();
     for(int i = 0; i < outer_num; i+=prob_step) {
       for (int j = 0; j < inner_num; ++j) {
         output << results[i*inner_num+j];
         if(prob_step > 1) output << " (" << int(results[i*inner_num+j+prob_step]*100) << "%)";
         output << ", ";
       }
-      output << "real label: " << int(labels[i]) << std::endl;
+      output << std::endl;
+      //output << "real label: " << int(labels[i]) << std::endl;
     }
     output << "=============================" << std::endl;
   }

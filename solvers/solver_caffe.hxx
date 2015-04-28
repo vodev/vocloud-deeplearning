@@ -19,14 +19,16 @@ namespace vodigger {
 
 class SolverCaffe : public Solver
 {
-	caffe::Net<float> *net_, *test_net_;
+	typedef float Dtype;
+
+	caffe::Net<Dtype> *net_ = nullptr, *test_net_ = nullptr;
 	caffe::SolverParameter params_;
 
 	// Filename where is supposed to be a model snapshot (if it isn't there then we create it)
 	std::string snapshot_filename_;
 
 	// following atributes are for momentum/snapshot/restore purposes
-	std::vector<std::shared_ptr<caffe::Blob<float> > > history_, update_, temp_;
+	std::vector<std::shared_ptr<caffe::Blob<Dtype> > > history_, update_, temp_;
 
 	// split functionality into more functions so it isn't a mess
 	void train_(std::ostream& output);
@@ -36,12 +38,10 @@ class SolverCaffe : public Solver
 	// perform gradient descent on trained network's parameters
 	void GDS_(int iter);
 
-	// utility functions
-	void compute_right_size(std::shared_ptr<Feeder>&, Phase, caffe::MemoryDataParameter*);
-
 public:
 	/* Find the caffe solver by name (proto files in solvers/ forlder) and instantiate it */
 	SolverCaffe(const bpt::ptree&, std::shared_ptr<Feeder>&, std::shared_ptr<Source>&);
+
 	virtual ~SolverCaffe() noexcept;
 
 	virtual void run(std::ostream& output);

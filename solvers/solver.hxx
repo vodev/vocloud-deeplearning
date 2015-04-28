@@ -12,7 +12,6 @@ namespace bpt = boost::property_tree;
 
 namespace vodigger {
 
-
 class Solver
 {
 protected:
@@ -27,7 +26,7 @@ protected:
     Solver(const Solver&) = delete;
 
 public:
-    virtual ~Solver() noexcept = default;
+    virtual ~Solver() noexcept {}
     virtual void run(std::ostream& output) = 0;
 };
 

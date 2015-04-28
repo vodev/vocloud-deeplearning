@@ -30,6 +30,15 @@ public:
 	* Function returns true if can handle specified pathname
 	*/
 	static bool handles(const std::string&);
+
+	/**
+	* Return an absolute path to a file
+	*/
+	virtual std::string absolutize(std::string filename) {
+		bfs::path absolut = folder_ / bfs::path(filename);
+		return absolut.string();
+	}
+
 };
 
 

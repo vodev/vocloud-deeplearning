@@ -38,6 +38,7 @@ public:
     }
 
     virtual const std::vector<std::string>& files() {return this->files_;}
+    virtual std::string absolutize(std::string filename) = 0;
 };
 
 
