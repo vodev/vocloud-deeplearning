@@ -21,23 +21,26 @@ class SolverCaffe : public Solver
 {
 	typedef float Dtype;
 
+	bool feed_;
 	caffe::Net<Dtype> *net_ = nullptr, *test_net_ = nullptr;
 	caffe::SolverParameter params_;
 
 	// Filename where is supposed to be a model snapshot (if it isn't there then we create it)
 	std::string snapshot_filename_;
+	size_t test_batch_, train_batch_;
 
 	// following atributes are for momentum/snapshot/restore purposes
 	std::vector<std::shared_ptr<caffe::Blob<Dtype> > > history_, update_, temp_;
 
 	// split functionality into more functions so it isn't a mess
 	void train_(std::ostream& output);
-	void test_(std::ostream& output);
+	void test_(size_t, std::ostream& output);
 	void guess_(std::ostream& output);
 	void snapshot_();
 	// perform gradient descent on trained network's parameters
-	void GDS_(int iter);
+	void GDS_(size_t iter);
 
+	void compute_right_size(std::shared_ptr<Feeder>&, Phase, caffe::MemoryDataParameter*);
 public:
 	/* Find the caffe solver by name (proto files in solvers/ forlder) and instantiate it */
 	SolverCaffe(const bpt::ptree&, std::shared_ptr<Feeder>&, std::shared_ptr<Source>&);

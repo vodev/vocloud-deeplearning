@@ -1,6 +1,7 @@
 #ifndef VODIGGER_HEADER
 #define VODIGGER_HEADER
 
+#include <string>
 
 namespace vodigger {
 
