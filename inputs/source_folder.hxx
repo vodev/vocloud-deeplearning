@@ -32,12 +32,10 @@ public:
 	static bool handles(const std::string&);
 
 	/**
-	* Return an absolute path to a file
+	* Return an absolute path to a file specified as argument. If the file
+	* is already an absolute path, don't change it
 	*/
-	virtual std::string absolutize(std::string filename) {
-		bfs::path absolut = folder_ / bfs::path(filename);
-		return absolut.string();
-	}
+	virtual const std::string absolutize(const std::string& filename);
 
 };
 

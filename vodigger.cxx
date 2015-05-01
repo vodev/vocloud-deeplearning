@@ -1,10 +1,16 @@
+#include <iomanip>
 #include <iostream>
 using std::endl;
 
+#include <cmath>
 #include <iterator>
 #include <memory>
+#include <sstream>
+#include <random>
+#include <map>
 #include <string>
 using std::string;
+using std::pair;
 
 #include <glog/logging.h>
 
@@ -18,11 +24,9 @@ namespace bpo = boost::program_options;
 namespace bpt = boost::property_tree;
 
 #include "caffe/caffe.hpp"
-// #include <caffe/solver.hpp>
-// #include <caffe/net.hpp>
-// #include <caffe/utils/io.hpp>
-// #include <caffe/common.hpp>
+using caffe::Blob;
 using caffe::Caffe;
+using caffe::Net;
 
 #include "utils/config.hxx"
 #include "inputs/source_factory.hxx"
@@ -46,7 +50,8 @@ void copy_layers(caffe::Solver<float>* solver, const std::string& model_list) {
 
 
 // Train / Finetune a model.
-int train(const bpt::ptree& conf, std::shared_ptr<Feeder> feeder, std::shared_ptr<Source> source) {
+int train(const bpo::variables_map& args, const bpt::ptree& conf, std::shared_ptr<Source> source)
+{
     CHECK(!conf.get<std::string>("parameters.solver", "").empty())
         << "Need a solver definition to train.";
 
@@ -81,84 +86,163 @@ int train(const bpt::ptree& conf, std::shared_ptr<Feeder> feeder, std::shared_pt
     boost::shared_ptr<caffe::Solver<float> > solver(caffe::GetSolver<float>(solver_param));
 
     LOG(INFO) << "Starting Optimization";
-    // if (FLAGS_snapshot.size()) {
-    //     LOG(INFO) << "Resuming from " << FLAGS_snapshot;
-    //     solver->Solve(FLAGS_snapshot);
-    // std::string weights_file = conf.get<std::string>("parameters.snapshot", )
-    // if (FLAGS_weights.size()) {
-    //     CopyLayers(&*solver, FLAGS_weights);
-    //     solver->Solve();
-    // } else {
-    solver->Solve();
-    // }
+    if (args.count("snapshot") > 0)
+    {
+        LOG(INFO) << "Resuming from " << args["snapshot"].as<std::string>();
+        solver->Solve(args["snapshot"].as<std::string>());
+    }
+    else
+    {
+        std::string weights_file;
+        if (args.count("weights") > 0) {
+            weights_file = args["weights"].as<std::string>();
+            copy_layers(&*solver, weights_file);
+        }
+        solver->Solve();
+    }
     LOG(INFO) << "Optimization Done.";
     return 0;
 }
 
 
-// // Test: score a model.
-// int test(const bpt::ptree& conf, std::shared_ptr<Feeder> feeder, std::shared_ptr<Source> source, std::string weights) {
-//   CHECK_GT(FLAGS_model.size(), 0) << "Need a model definition to score.";
-//   CHECK_GT(FLAGS_weights.size(), 0) << "Need model weights to score.";
+// Test: score a model.
+int test(const bpo::variables_map& args, const bpt::ptree& conf, std::shared_ptr<Source> source)
+{
+    CHECK(!conf.get<std::string>("parameters.model", "").empty())
+        << "Need a model definition to score (config parameters.model)";
 
-//   // Set device id and mode
-//   if (FLAGS_gpu >= 0) {
-//     LOG(INFO) << "Use GPU with device ID " << FLAGS_gpu;
-//     Caffe::SetDevice(FLAGS_gpu);
-//     Caffe::set_mode(Caffe::GPU);
-//   } else {
-//     LOG(INFO) << "Use CPU.";
-//     Caffe::set_mode(Caffe::CPU);
-//   }
-//   // Instantiate the caffe net.
-//   Net<float> caffe_net(FLAGS_model, caffe::TEST);
-//   caffe_net.CopyTrainedLayersFrom(FLAGS_weights);
-//   LOG(INFO) << "Running for " << FLAGS_iterations << " iterations.";
+    CHECK(args.count("test") > 0 ||
+          !conf.get<std::string>("parameters.weights", "").empty())
+        << "Need model weights to score (config parameters.weights or argument --weights)";
 
-//   vector<Blob<float>* > bottom_vec;
-//   vector<int> test_score_output_id;
-//   vector<float> test_score;
-//   float loss = 0;
-//   for (int i = 0; i < FLAGS_iterations; ++i) {
-//     float iter_loss;
-//     const vector<Blob<float>*>& result =
-//         caffe_net.Forward(bottom_vec, &iter_loss);
-//     loss += iter_loss;
-//     int idx = 0;
-//     for (int j = 0; j < result.size(); ++j) {
-//       const float* result_vec = result[j]->cpu_data();
-//       for (int k = 0; k < result[j]->count(); ++k, ++idx) {
-//         const float score = result_vec[k];
-//         if (i == 0) {
-//           test_score.push_back(score);
-//           test_score_output_id.push_back(j);
-//         } else {
-//           test_score[idx] += score;
-//         }
-//         const std::string& output_name = caffe_net.blob_names()[
-//             caffe_net.output_blob_indices()[j]];
-//         LOG(INFO) << "Batch " << i << ", " << output_name << " = " << score;
-//       }
-//     }
-//   }
-//   loss /= FLAGS_iterations;
-//   LOG(INFO) << "Loss: " << loss;
-//   for (int i = 0; i < test_score.size(); ++i) {
-//     const std::string& output_name = caffe_net.blob_names()[
-//         caffe_net.output_blob_indices()[test_score_output_id[i]]];
-//     const float loss_weight =
-//         caffe_net.blob_loss_weights()[caffe_net.output_blob_indices()[i]];
-//     std::ostringstream loss_msg_stream;
-//     const float mean_score = test_score[i] / FLAGS_iterations;
-//     if (loss_weight) {
-//       loss_msg_stream << " (* " << loss_weight
-//                       << " = " << loss_weight * mean_score << " loss)";
-//     }
-//     LOG(INFO) << output_name << " = " << mean_score << loss_msg_stream.str();
-//   }
+    std::default_random_engine generator;
+    std::uniform_real_distribution<double> distribution(0.0,1.0);
 
-//   return 0;
-// }
+    // Set device id and mode
+    // If the gpu flag is not provided, allow the mode and device to be set
+    // in the solver prototxt.
+    if (conf.get<std::string>("parameters.mode", "CPU") == "GPU")
+    {
+        LOG(INFO) << "Dynamic decision about device ID " << 0;    // just a joke
+        Caffe::SetDevice(0);
+        Caffe::set_mode(Caffe::GPU);
+    } else {
+        LOG(INFO) << "Use CPU.";
+        Caffe::set_mode(Caffe::CPU);
+    }
+
+    caffe::SolverParameter solver_param;
+    caffe::ReadProtoFromTextFileOrDie(
+        source->absolutize(conf.get<std::string>("parameters.solver")), &solver_param);
+
+    // Instantiate the caffe net.
+    std::string weights_file;
+    if(args.count("test") > 0) {
+        weights_file = args["test"].as<std::string>();
+    }
+    if(weights_file.empty() && !conf.get<std::string>("parameters.weights", "").empty()) {
+        weights_file = conf.get<std::string>("parameters.weights");
+    }
+
+    Net<float> caffe_net(conf.get<std::string>("parameters.model"), caffe::TEST);
+    caffe_net.CopyTrainedLayersFrom(weights_file);
+
+    int iterations = conf.get("parameters.test_iters", 50);
+    LOG(INFO) << "Running for " << iterations << " iterations (adjust by config parameters.test_iters).";
+    std::vector<Blob<float>* > bottom_vec;
+    std::vector<int> test_score_output_id;
+    std::vector<float> test_score;
+    std::map<pair<int,int>, int> confusion;
+    float loss = 0;
+    float chance_of_printing = 1.0/iterations;
+    int print_samples = 30;
+
+    for (int iter = 0; iter < iterations; ++iter) {
+        float iter_loss;
+        const std::vector<Blob<float>*>& result =
+                caffe_net.Forward(bottom_vec, &iter_loss);
+        const float* labels = caffe_net.blob_by_name("label")->cpu_data();
+        loss += iter_loss;
+        int idx = 0;
+        for (int j = 0; j < result.size(); ++j) {
+            const std::string& output_name = caffe_net.blob_names()[
+                    caffe_net.output_blob_indices()[j]];
+            const float* result_vec = result[j]->cpu_data();
+            if(result[j]->count() > 2)
+            {
+                int outer_num = result[j]->count(0, 1);
+                int channels = result[j]->count(1, 2);
+                int inner_num = result[j]->count(2);
+                int printed_results = 0;
+                // means we are getting the guesses to the labels
+                for(int onum = 0; onum < outer_num; ++onum)
+                {
+                    // print out just few random samples ... don't flood us with data
+                    if(printed_results < int(print_samples*chance_of_printing) && distribution(generator) < chance_of_printing)
+                    {
+                        std::ostringstream oss;
+                        oss << int(labels[onum]);
+                        oss << std::setprecision(1) << "[";
+                        for (int inum = 0; inum < inner_num; ++inum) {
+                            oss << result_vec[onum*channels*inner_num+inum] << ", ";
+                        }
+                        oss << "\b\b] prob: [";
+                        if(channels > 1) {
+                            for (int inum = 0; inum < inner_num; ++inum) {
+                                oss << result_vec[onum*channels*inner_num+inum+inner_num] << ", ";
+                            }
+                        }
+                        oss << "\b\b]";
+                        LOG(INFO) << "Example from (" << output_name << " layer): " << oss.str();
+                        ++printed_results;
+                    }
+                    // compute confusion matrix
+                    confusion[std::make_pair(int(labels[onum]), int(result_vec[onum*channels*inner_num]))] += 1;
+                }
+            }
+            else
+            {
+                for (int k = 0; k < result[j]->count(); ++k, ++idx) {
+                    const float score = result_vec[k];
+                    if (iter == 0) {
+                        test_score.push_back(score);
+                        test_score_output_id.push_back(j);
+                    } else {
+                        test_score[idx] += score;
+                    }
+                }
+            }
+        }
+    }
+    loss /= iterations;
+    LOG(INFO) << "Loss: " << loss;
+    for (int i = 0; i < test_score.size(); ++i) {
+        const std::string& output_name = caffe_net.blob_names()[
+                caffe_net.output_blob_indices()[test_score_output_id[i]]];
+        const float loss_weight =
+                caffe_net.blob_loss_weights()[caffe_net.output_blob_indices()[i]];
+        std::ostringstream loss_msg_stream;
+        const float mean_score = test_score[i] / iterations;
+        if (loss_weight) {
+            loss_msg_stream << " (* " << loss_weight
+                                            << " = " << loss_weight * mean_score << " loss)";
+        }
+        LOG(INFO) << output_name << " = " << mean_score << loss_msg_stream.str();
+    }
+    // print out confusion matrix
+    LOG(INFO) << "Confusion matrix size: " << confusion.size();
+    std::ostringstream oss;
+    int axis = ceil(sqrt(confusion.size()));
+    for(int i = 0; i < axis; ++i) {
+        for(int j = 0; j < axis; ++j) {
+            oss << confusion[std::make_pair(i, j)] << "\t";
+        }
+        oss << std::endl;
+    }
+    LOG(INFO) << std::endl << oss.str();
+
+    return 0;
+}
 
 
 // // Time: benchmark the execution time of a model.
@@ -273,12 +357,14 @@ int main(int argc, const char *argv[]) {
     bpt::ptree conf = parse_config_file(iconf.get());
     CHECK(!conf.empty()) << "Error parsing the config file";
 
-    // feeder will try to load data into memory or create/get caffe-readable database
-    std::shared_ptr<Feeder> feeder {feeder_factory(source, conf)};
-    CHECK(feeder) << "No feeder can hadle type: " << conf.get<std::string>("data.type");
+    CHECK_GE(args.count("train") + args.count("test"), 1)
+        << "Specify either --test or --train";
 
     // if the user selected --cretedb <path> then just create database ?and quit?
     if(args.count("createdb") > 0) {
+        // feeder will try to load data into memory or create/get caffe-readable database
+        std::shared_ptr<Feeder> feeder {feeder_factory(source, conf)};
+        CHECK(feeder) << "No feeder can hadle type: " << conf.get<std::string>("data.type");
         feeder->create_dbs(args["createdb"].as<std::string>());
         return 0;
     }
@@ -287,10 +373,11 @@ int main(int argc, const char *argv[]) {
     bfs::path cwd = bfs::current_path();
     bfs::current_path(bfs::path(args["source"].as<string>()));
 
-    if(args.count("train") > 1 || args.count("test") == 0) {
-        train(conf, feeder, source);
-    } else if(args.count("test") > 1) {
-        // test(conf, feeder, source);
+    if(args.count("train") >= 1) {
+        train(args, conf, source);
+    }
+    if(args.count("test") >= 1) {
+        test(args, conf, source);
     }
 
     // ugly hack ... revert the previous CWD

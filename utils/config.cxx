@@ -44,7 +44,8 @@ boost::program_options::variables_map parse_cmd_args(int argc, const char** argv
     cmd_opts.add_options()
         ("help,h", "produce help message")
         ("train", "train network specified by solver, model and config file")
-        ("test", "test network specified by solver, model, weight and config file")
+        ("test", bpo::value<std::string>(), "test network with specified weight file (can be relative to the source dir)")
+        ("weights,w", bpo::value<std::string>(), "snapshot of model")
         ("createdb,d",  bpo::value<std::string>(), "path where to create leveldb from given (csv) source")
         ("config,c", bpo::value<std::string>()->default_value("config.json"), "name of a config file")
     ;

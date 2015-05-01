@@ -70,5 +70,14 @@ std::ostream* SourceFolder::write(const std::string& filename)
   return new std::ofstream(ap.native(), std::ios::binary | std::ios::trunc);
 }
 
+const std::string SourceFolder::absolutize(const std::string& filename)
+{
+    bfs::path newpath(filename);
+    if(newpath.is_absolute()) return filename;
+
+    bfs::path absolut = folder_ / newpath;
+    return absolut.string();
+  }
+
 
 }
