@@ -105,6 +105,17 @@ int train(const bpo::variables_map& args, const bpt::ptree& conf, std::shared_pt
 }
 
 
+int confusion_max_key(const std::map<std::pair<int, int>, int>& conf)
+{
+    int maxval = 0;
+    for(auto it = conf.cbegin(); it != conf.cend(); ++it) {
+        if(it->first.first > maxval) maxval = it->first.first;
+        if(it->first.second > maxval) maxval = it->first.second;
+    }
+    return maxval;
+}
+
+
 // Test: score a model.
 int test(const bpo::variables_map& args, const bpt::ptree& conf, std::shared_ptr<Source> source)
 {
@@ -232,10 +243,10 @@ int test(const bpo::variables_map& args, const bpt::ptree& conf, std::shared_ptr
     // print out confusion matrix
     LOG(INFO) << "Confusion matrix size: " << confusion.size();
     std::ostringstream oss;
-    int axis = ceil(sqrt(confusion.size()));
-    for(int i = 0; i < axis; ++i) {
-        for(int j = 0; j < axis; ++j) {
-            oss << confusion[std::make_pair(i, j)] << "\t";
+    int axis = confusion_max_key(confusion);
+    for(int i = 0; i <= axis; ++i) {
+        for(int j = 0; j <= axis; ++j) {
+            oss << std::setw(4) << confusion[std::make_pair(i, j)];
         }
         oss << std::endl;
     }
