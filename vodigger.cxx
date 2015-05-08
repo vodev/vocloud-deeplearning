@@ -76,9 +76,11 @@ int train(const bpo::variables_map& args, const bpt::ptree& conf, std::shared_pt
         LOG(INFO) << "Dynamic decision about device ID " << 0;    // just a joke
         Caffe::SetDevice(0);
         Caffe::set_mode(Caffe::GPU);
+        solver_param.set_solver_mode(::caffe::SolverParameter_SolverMode(1));
     } else {
         LOG(INFO) << "Use CPU.";
         Caffe::set_mode(Caffe::CPU);
+        solver_param.set_solver_mode(::caffe::SolverParameter_SolverMode(0));
     }
 
     LOG(INFO) << "Initializing solver from parameters: " << std::endl
