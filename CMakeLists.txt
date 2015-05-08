@@ -5,16 +5,16 @@ project(VO-digger)
 # cmake -DCMAKE_BUILD_TYPE=Release|Debug|RelWithDebInfo
 add_subdirectory(utils)
 add_subdirectory(inputs)
-add_subdirectory(solvers)
+# add_subdirectory(solvers)
 
 # define outcomes
 add_executable(vodigger vodigger.cxx
 	$<TARGET_OBJECTS:utils>
 	$<TARGET_OBJECTS:sources>
+#	$<TARGET_OBJECTS:solvers>
 	$<TARGET_OBJECTS:feeders>
-	$<TARGET_OBJECTS:solvers>
 )
-add_dependencies(vodigger utils sources feeders solvers)
+add_dependencies(vodigger utils sources feeders) # solvers
 
 # set globally that we compile as c++11
 set(VODDIGER_CXX_FLAGS "-std=c++11")
