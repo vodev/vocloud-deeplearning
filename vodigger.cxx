@@ -27,6 +27,7 @@ namespace bpt = boost::property_tree;
 using caffe::Blob;
 using caffe::Caffe;
 using caffe::Net;
+using caffe::Layer;
 
 #include "utils/config.hxx"
 #include "inputs/source_factory.hxx"
@@ -259,93 +260,104 @@ int test(const bpo::variables_map& args, const bpt::ptree& conf, std::shared_ptr
 
 
 // // Time: benchmark the execution time of a model.
-// int time(const bpt::ptree& conf, std::shared_ptr<Feeder> feeder, std::shared_ptr<Source> source) {
-//   CHECK_GT(model.size(), 0) << "Need a model definition to time.";
+int time(const bpo::variables_map& args, const bpt::ptree& conf, std::shared_ptr<Source> source)
+{
+    CHECK(!conf.get<std::string>("parameters.model", "").empty())
+        << "Need a model definition to score (config parameters.model)";
 
-//   // Set device id and mode
-//   if (FLAGS_gpu >= 0) {
-//     LOG(INFO) << "Use GPU with device ID " << FLAGS_gpu;
-//     Caffe::SetDevice(FLAGS_gpu);
-//     Caffe::set_mode(Caffe::GPU);
-//   } else {
-//     LOG(INFO) << "Use CPU.";
-//     Caffe::set_mode(Caffe::CPU);
-//   }
-//   // Instantiate the caffe net.
-//   Net<float> caffe_net(FLAGS_model, caffe::TRAIN);
+    if(conf.get("parameters.bench_iter", -1) == -1)
+        LOG(WARNING) << "Set parameters.bech_iter in config file. Using default 50";
 
-//   // Do a clean forward and backward pass, so that memory allocation are done
-//   // and future iterations will be more stable.
-//   LOG(INFO) << "Performing Forward";
-//   // Note that for the speed benchmark, we will assume that the network does
-//   // not take any input blobs.
-//   float initial_loss;
-//   caffe_net.Forward(vector<Blob<float>*>(), &initial_loss);
-//   LOG(INFO) << "Initial loss: " << initial_loss;
-//   LOG(INFO) << "Performing Backward";
-//   caffe_net.Backward();
+    // Set device id and mode
+    // If the gpu flag is not provided, allow the mode and device to be set
+    // in the solver prototxt.
+    if (conf.get<std::string>("parameters.mode", "CPU") == "GPU")
+    {
+        LOG(INFO) << "Dynamic decision about device ID " << 0;    // just a joke
+        Caffe::SetDevice(0);
+        Caffe::set_mode(Caffe::GPU);
+    } else {
+        LOG(INFO) << "Use CPU.";
+        Caffe::set_mode(Caffe::CPU);
+    }
+    // Instantiate the caffe net.
+    Net<float> caffe_net(source->absolutize(conf.get<std::string>("parameters.model")),
+                         caffe::TRAIN);
 
-//   const vector<shared_ptr<Layer<float> > >& layers = caffe_net.layers();
-//   const vector<vector<Blob<float>*> >& bottom_vecs = caffe_net.bottom_vecs();
-//   const vector<vector<Blob<float>*> >& top_vecs = caffe_net.top_vecs();
-//   const vector<vector<bool> >& bottom_need_backward =
-//       caffe_net.bottom_need_backward();
-//   LOG(INFO) << "*** Benchmark begins ***";
-//   LOG(INFO) << "Testing for " << FLAGS_iterations << " iterations.";
-//   Timer total_timer;
-//   total_timer.Start();
-//   Timer forward_timer;
-//   Timer backward_timer;
-//   Timer timer;
-//   std::vector<double> forward_time_per_layer(layers.size(), 0.0);
-//   std::vector<double> backward_time_per_layer(layers.size(), 0.0);
-//   double forward_time = 0.0;
-//   double backward_time = 0.0;
-//   for (int j = 0; j < FLAGS_iterations; ++j) {
-//     Timer iter_timer;
-//     iter_timer.Start();
-//     forward_timer.Start();
-//     for (int i = 0; i < layers.size(); ++i) {
-//       timer.Start();
-//       // Although Reshape should be essentially free, we include it here
-//       // so that we will notice Reshape performance bugs.
-//       layers[i]->Reshape(bottom_vecs[i], top_vecs[i]);
-//       layers[i]->Forward(bottom_vecs[i], top_vecs[i]);
-//       forward_time_per_layer[i] += timer.MicroSeconds();
-//     }
-//     forward_time += forward_timer.MicroSeconds();
-//     backward_timer.Start();
-//     for (int i = layers.size() - 1; i >= 0; --i) {
-//       timer.Start();
-//       layers[i]->Backward(top_vecs[i], bottom_need_backward[i],
-//                           bottom_vecs[i]);
-//       backward_time_per_layer[i] += timer.MicroSeconds();
-//     }
-//     backward_time += backward_timer.MicroSeconds();
-//     LOG(INFO) << "Iteration: " << j + 1 << " forward-backward time: "
-//       << iter_timer.MilliSeconds() << " ms.";
-//   }
-//   LOG(INFO) << "Average time per layer: ";
-//   for (int i = 0; i < layers.size(); ++i) {
-//     const caffe::string& layername = layers[i]->layer_param().name();
-//     LOG(INFO) << std::setfill(' ') << std::setw(10) << layername <<
-//       "\tforward: " << forward_time_per_layer[i] / 1000 /
-//       FLAGS_iterations << " ms.";
-//     LOG(INFO) << std::setfill(' ') << std::setw(10) << layername  <<
-//       "\tbackward: " << backward_time_per_layer[i] / 1000 /
-//       FLAGS_iterations << " ms.";
-//   }
-//   total_timer.Stop();
-//   LOG(INFO) << "Average Forward pass: " << forward_time / 1000 /
-//     FLAGS_iterations << " ms.";
-//   LOG(INFO) << "Average Backward pass: " << backward_time / 1000 /
-//     FLAGS_iterations << " ms.";
-//   LOG(INFO) << "Average Forward-Backward: " << total_timer.MilliSeconds() /
-//     FLAGS_iterations << " ms.";
-//   LOG(INFO) << "Total Time: " << total_timer.MilliSeconds() << " ms.";
-//   LOG(INFO) << "*** Benchmark ends ***";
-//   return 0;
-// }
+    // Do a clean forward and backward pass, so that memory allocation are done
+    // and future iterations will be more stable.
+    LOG(INFO) << "Performing Forward";
+    // Note that for the speed benchmark, we will assume that the network does
+    // not take any input blobs.
+    float initial_loss;
+    caffe_net.Forward(std::vector<Blob<float>*>(), &initial_loss);
+    LOG(INFO) << "Initial loss: " << initial_loss;
+    LOG(INFO) << "Performing Backward";
+    caffe_net.Backward();
+
+    const std::vector<boost::shared_ptr<Layer<float> > >& layers = caffe_net.layers();
+    const std::vector<std::vector<Blob<float>*> >& bottom_vecs = caffe_net.bottom_vecs();
+    const std::vector<std::vector<Blob<float>*> >& top_vecs = caffe_net.top_vecs();
+    const std::vector<std::vector<bool> >& bottom_need_backward =
+            caffe_net.bottom_need_backward();
+    int iterations = conf.get("parameters.bench_iter", 50);
+
+    LOG(INFO) << "*** Benchmark begins ***";
+    LOG(INFO) << "Testing for " << iterations << " iterations.";
+    caffe::Timer total_timer;
+    total_timer.Start();
+    caffe::Timer forward_timer;
+    caffe::Timer backward_timer;
+    caffe::Timer timer;
+    std::vector<double> forward_time_per_layer(layers.size(), 0.0);
+    std::vector<double> backward_time_per_layer(layers.size(), 0.0);
+    double forward_time = 0.0;
+    double backward_time = 0.0;
+    for (int j = 0; j < iterations; ++j) {
+        caffe::Timer iter_timer;
+        iter_timer.Start();
+        forward_timer.Start();
+        for (int i = 0; i < layers.size(); ++i) {
+            timer.Start();
+            // Although Reshape should be essentially free, we include it here
+            // so that we will notice Reshape performance bugs.
+            layers[i]->Reshape(bottom_vecs[i], top_vecs[i]);
+            layers[i]->Forward(bottom_vecs[i], top_vecs[i]);
+            forward_time_per_layer[i] += timer.MicroSeconds();
+        }
+        forward_time += forward_timer.MicroSeconds();
+        backward_timer.Start();
+        for (int i = layers.size() - 1; i >= 0; --i) {
+            timer.Start();
+            layers[i]->Backward(top_vecs[i], bottom_need_backward[i],
+                                                    bottom_vecs[i]);
+            backward_time_per_layer[i] += timer.MicroSeconds();
+        }
+        backward_time += backward_timer.MicroSeconds();
+        LOG(INFO) << "Iteration: " << j + 1 << " forward-backward time: "
+            << iter_timer.MilliSeconds() << " ms.";
+    }
+    LOG(INFO) << "Average time per layer: ";
+    for (int i = 0; i < layers.size(); ++i) {
+        const caffe::string& layername = layers[i]->layer_param().name();
+        LOG(INFO) << std::setfill(' ') << std::setw(10) << layername <<
+            "\tforward: " << forward_time_per_layer[i] / 1000 /
+            iterations << " ms.";
+        LOG(INFO) << std::setfill(' ') << std::setw(10) << layername    <<
+            "\tbackward: " << backward_time_per_layer[i] / 1000 /
+            iterations << " ms.";
+    }
+    total_timer.Stop();
+    LOG(INFO) << "Average Forward pass: " << forward_time / 1000 /
+        iterations << " ms.";
+    LOG(INFO) << "Average Backward pass: " << backward_time / 1000 /
+        iterations << " ms.";
+    LOG(INFO) << "Average Forward-Backward: " << total_timer.MilliSeconds() /
+        iterations << " ms.";
+    LOG(INFO) << "Total Time: " << total_timer.MilliSeconds() << " ms.";
+    LOG(INFO) << "*** Benchmark ends ***";
+    return 0;
+}
 
 
 
@@ -370,7 +382,7 @@ int main(int argc, const char *argv[]) {
     bpt::ptree conf = parse_config_file(iconf.get());
     CHECK(!conf.empty()) << "Error parsing the config file";
 
-    CHECK_GE(args.count("train") + args.count("test"), 1)
+    CHECK_GE(args.count("train") + args.count("test") + args.count("time"), 1)
         << "Specify either --test or --train";
 
     // if the user selected --cretedb <path> then just create database ?and quit?
@@ -391,6 +403,9 @@ int main(int argc, const char *argv[]) {
     }
     if(args.count("test") >= 1) {
         test(args, conf, source);
+    }
+    if(args.count("time") >= 1) {
+        time(args, conf, source);
     }
 
     // ugly hack ... revert the previous CWD
