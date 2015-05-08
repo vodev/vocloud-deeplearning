@@ -265,7 +265,7 @@ int time(const bpo::variables_map& args, const bpt::ptree& conf, std::shared_ptr
     CHECK(!conf.get<std::string>("parameters.model", "").empty())
         << "Need a model definition to score (config parameters.model)";
 
-    if(conf.get("parameters.bench_iter", -1) == -1)
+    if(conf.get("parameters.bench_iters", -1) == -1)
         LOG(WARNING) << "Set parameters.bech_iter in config file. Using default 50";
 
     // Set device id and mode
@@ -300,7 +300,7 @@ int time(const bpo::variables_map& args, const bpt::ptree& conf, std::shared_ptr
     const std::vector<std::vector<Blob<float>*> >& top_vecs = caffe_net.top_vecs();
     const std::vector<std::vector<bool> >& bottom_need_backward =
             caffe_net.bottom_need_backward();
-    int iterations = conf.get("parameters.bench_iter", 50);
+    int iterations = conf.get("parameters.bench_iters", 50);
 
     LOG(INFO) << "*** Benchmark begins ***";
     LOG(INFO) << "Testing for " << iterations << " iterations.";
