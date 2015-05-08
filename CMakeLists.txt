@@ -12,9 +12,9 @@ add_executable(vodigger vodigger.cxx
 	$<TARGET_OBJECTS:utils>
 	$<TARGET_OBJECTS:sources>
 #	$<TARGET_OBJECTS:solvers>
-	$<TARGET_OBJECTS:feeders>
+	# $<TARGET_OBJECTS:feeders>
 )
-add_dependencies(vodigger utils sources feeders) # solvers
+add_dependencies(vodigger utils sources) # feeders solvers
 
 # set globally that we compile as c++11
 set(VODDIGER_CXX_FLAGS "-std=c++11")

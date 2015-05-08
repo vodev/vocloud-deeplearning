@@ -6,4 +6,4 @@ project(VO-digger)
 
 # define outcomes
 add_library(sources OBJECT source_folder.cxx source_factory.cxx)
-add_library(feeders OBJECT feeder_csv.cxx feeder_leveldb.cxx feeder_factory.cxx)
+# add_library(feeders OBJECT feeder_csv.cxx feeder_leveldb.cxx feeder_factory.cxx)

@@ -30,7 +30,7 @@ using caffe::Net;
 
 #include "utils/config.hxx"
 #include "inputs/source_factory.hxx"
-#include "inputs/feeder_factory.hxx"
+// #include "inputs/feeder_factory.hxx"
 using namespace vodigger;
 
 
@@ -372,13 +372,13 @@ int main(int argc, const char *argv[]) {
         << "Specify either --test or --train";
 
     // if the user selected --cretedb <path> then just create database ?and quit?
-    if(args.count("createdb") > 0) {
-        // feeder will try to load data into memory or create/get caffe-readable database
-        std::shared_ptr<Feeder> feeder {feeder_factory(source, conf)};
-        CHECK(feeder) << "No feeder can hadle type: " << conf.get<std::string>("data.type");
-        feeder->create_dbs(args["createdb"].as<std::string>());
-        return 0;
-    }
+    // if(args.count("createdb") > 0) {
+    //     // feeder will try to load data into memory or create/get caffe-readable database
+    //     std::shared_ptr<Feeder> feeder {feeder_factory(source, conf)};
+    //     CHECK(feeder) << "No feeder can hadle type: " << conf.get<std::string>("data.type");
+    //     feeder->create_dbs(args["createdb"].as<std::string>());
+    //     return 0;
+    // }
 
     // ugly hack ... change CWD to the path in the argumentd
     bfs::path cwd = bfs::current_path();
