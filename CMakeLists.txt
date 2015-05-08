@@ -53,6 +53,13 @@ endif()
 target_link_libraries(vodigger glog)
 
 
+find_package(CUDA REQUIRED)
+if(CUDA_FOUND)
+	include_directories(${CUDA_TOOLKIT_INCLUDE})
+	target_link_libraries(vodigger ${CUDA_CUBLAS_LIBRARIES})
+endif()
+
+
 find_library(LIB_CAFFE caffe)
 if(${LIB_CAFFE} STREQUAL LIB_CAFFE-NOTFOUND)
 	find_library(LIB_CAFFE_NV caffe-nv)
