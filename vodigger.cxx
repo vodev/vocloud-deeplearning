@@ -259,7 +259,7 @@ int test(const bpo::variables_map& args, const bpt::ptree& conf, std::shared_ptr
 }
 
 
-// // Time: benchmark the execution time of a model.
+// Time: benchmark the execution time of a model.
 int time(const bpo::variables_map& args, const bpt::ptree& conf, std::shared_ptr<Source> source)
 {
     CHECK(!conf.get<std::string>("parameters.model", "").empty())
@@ -359,6 +359,43 @@ int time(const bpo::variables_map& args, const bpt::ptree& conf, std::shared_ptr
     return 0;
 }
 
+int dump(const bpo::variables_map& args, const bpt::ptree& conf, std::shared_ptr<Source> source)
+{
+    CHECK(!conf.get<std::string>("parameters.model", "").empty())
+        << "Need a model definition to score (config parameters.model)";
+
+    CHECK(args.count("dump") > 0)
+        << "Need model weights to dump (argument --weights)";
+
+    LOG(INFO) << "Use CPU.";
+    Caffe::set_mode(Caffe::CPU);
+
+    // Instantiate the caffe net.
+    std::string weights_file = args["dump"].as<std::string>();
+
+    Net<float> caffe_net(conf.get<std::string>("parameters.model"), caffe::TRAIN);
+    caffe_net.CopyTrainedLayersFrom(weights_file);
+
+    const std::vector<std::string> names = caffe_net.layer_names();
+    const std::vector<boost::shared_ptr<Blob<float> > > params = caffe_net.params();
+    const std::vector<int> param_owners = caffe_net.param_owners();
+
+    for(int i = 0; i < params.size(); ++i)
+    {
+        std::ostringstream iss;
+        iss << "Owner: " << param_owners[i] << " shape: " << params[i]->shape_string() << std::endl;
+        int outer_num = params[i]->count(0,1);
+        int inner_num = params[i]->count(1);
+        const float *data = params[i]->cpu_data();
+        for(int n=0; n<outer_num; ++n) {
+            for(int j=0; j<inner_num;++j) {
+                iss << data[n*inner_num + j] << " ";
+            }
+            iss << std::endl;
+        }
+        LOG(INFO) << iss.str();
+    }
+}
 
 
 int main(int argc, const char *argv[]) {
@@ -382,8 +419,8 @@ int main(int argc, const char *argv[]) {
     bpt::ptree conf = parse_config_file(iconf.get());
     CHECK(!conf.empty()) << "Error parsing the config file";
 
-    CHECK_GE(args.count("train") + args.count("test") + args.count("time"), 1)
-        << "Specify either --test or --train";
+    CHECK_GE(args.count("train") + args.count("test") + args.count("time") + args.count("dump"), 1)
+        << "Specify either --test, --train, --time or --dump";
 
     // if the user selected --cretedb <path> then just create database ?and quit?
     // if(args.count("createdb") > 0) {
@@ -406,6 +443,9 @@ int main(int argc, const char *argv[]) {
     }
     if(args.count("time") >= 1) {
         time(args, conf, source);
+    }
+    if(args.count("dump") >= 1) {
+        dump(args, conf, source);
     }
 
     // ugly hack ... revert the previous CWD

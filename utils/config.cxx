@@ -45,6 +45,7 @@ boost::program_options::variables_map parse_cmd_args(int argc, const char** argv
         ("help,h", "produce help message")
         ("train", "train network specified by solver, model and config file")
         ("test", bpo::value<std::string>(), "test network with specified weight file (can be relative to the source dir)")
+        ("dump", bpo::value<std::string>(), "dump parameters of network specified by weight file (can be relative to the source dir)")
         ("time", "benchmark network by performing bench_iter forward and backward passes")
         ("weights,w", bpo::value<std::string>(), "snapshot of model")
         ("createdb,d",  bpo::value<std::string>(), "path where to create leveldb from given (csv) source")
