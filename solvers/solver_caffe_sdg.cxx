@@ -36,7 +36,7 @@ void SolverCaffeSDG<Dtype>::Init(const caffe::SolverParameter& param)
   LOG(INFO) << "Initializing solver from parameters: " << std::endl
             << param.DebugString();
   this->param_ = param;
-  this->param_.set_net(source_->absolutize(props_.get<std::string>("parameters.model")));
+  this->param_.set_net(source_->absolutize(props_.get<std::string>("params.model")));
   if(this->param_.has_snaphshot_prefix()) {
     this->param_.set_snaphshot_prefix(source_->absolutize(this->param_->snaphshot_prefix()));
   }

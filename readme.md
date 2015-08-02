@@ -33,7 +33,7 @@ be a folder with a configuration file named \texttt{config.json} by default.
 ```
 data : {
     "name":"stellar_spectra",
-    "parameters":
+    "params":
     {
         "mode": "GPU",
         "solver": "solver.prototxt",
@@ -47,7 +47,7 @@ data : {
 The parameter `model` and `solver` are very similar. They contain names of a model and
 solver definition files, respectively. Both files has to be proto files following the requirements for Caffe model and solver definition, respectively. There are
 two differences. First is, that we set up the running mode (either CPU or GPU) directly in this
-config file (by `parameters.mode`) and not in a solver. The reason is simply that the solver
+config file (by `params.mode`) and not in a solver. The reason is simply that the solver
 is not always needed and therefore it should not be responsibility of a solver to set up the mode.
 Second difference is that we have two test_iteration values -- one in solver and second in config
 file. The one in solver says number of test iterations while training a network (for validation).

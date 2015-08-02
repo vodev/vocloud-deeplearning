@@ -35,6 +35,7 @@ using caffe::Layer;
 using namespace vodigger;
 
 
+
 // Load the weights from the specified caffemodel(s) into the train and
 // test nets.
 void copy_layers(caffe::Solver<float>* solver, const std::string& model_list) {
@@ -53,39 +54,16 @@ void copy_layers(caffe::Solver<float>* solver, const std::string& model_list) {
 // Train / Finetune a model.
 int train(const bpo::variables_map& args, const bpt::ptree& conf, std::shared_ptr<Source> source)
 {
-    CHECK(!conf.get<std::string>("parameters.solver", "").empty())
-        << "Need a solver definition to train.";
-
-    // CHECK(!FLAGS_snapshot.size() || !FLAGS_weights.size())
-    //         << "Give a snapshot to resume training or weights to finetune "
-    //         "but not both.";
-
+    CHECK(!conf.get<std::string>("params.model", "").empty())
+        << "Need a model definition to train.";
 
     caffe::SolverParameter solver_param;
-    caffe::ReadProtoFromTextFileOrDie(
-        source->absolutize(conf.get<std::string>("parameters.solver")), &solver_param);
+    solver_param_from_config(solver_param, conf);
+    caffe::NetParameter *net_param = new caffe::NetParameter();
+    net_param_from_config_and_model(net_param, Phase::TRAIN,
+                                    conf, source->read(conf.get<std::string>("params.model")));
+    solver_param.set_allocated_net_param(net_param);
 
-    solver_param.set_net(source->absolutize(conf.get<std::string>("parameters.model")));
-    if(solver_param.has_snapshot_prefix()) {
-        solver_param.set_snapshot_prefix(source->absolutize(solver_param.snapshot_prefix()));
-    }
-
-    // If the gpu flag is not provided, allow the mode and device to be set
-    // in the solver prototxt.
-    if (conf.get<std::string>("parameters.mode", "CPU") == "GPU")
-    {
-        LOG(INFO) << "Dynamic decision about device ID " << 0;    // just a joke
-        Caffe::SetDevice(0);
-        Caffe::set_mode(Caffe::GPU);
-        solver_param.set_solver_mode(::caffe::SolverParameter_SolverMode(1));
-    } else {
-        LOG(INFO) << "Use CPU.";
-        Caffe::set_mode(Caffe::CPU);
-        solver_param.set_solver_mode(::caffe::SolverParameter_SolverMode(0));
-    }
-
-    LOG(INFO) << "Initializing solver from parameters: " << std::endl
-              << solver_param.DebugString();
     boost::shared_ptr<caffe::Solver<float> > solver(caffe::GetSolver<float>(solver_param));
 
     LOG(INFO) << "Starting Optimization";
@@ -120,49 +98,36 @@ int confusion_max_key(const std::map<std::pair<int, int>, int>& conf)
 
 
 // Test: score a model.
-int test(const bpo::variables_map& args, const bpt::ptree& conf, std::shared_ptr<Source> source)
+void test(const bpo::variables_map& args, const bpt::ptree& conf, std::shared_ptr<Source> source,
+          std::ostream& results)
 {
-    CHECK(!conf.get<std::string>("parameters.model", "").empty())
-        << "Need a model definition to score (config parameters.model)";
+    CHECK(!conf.get<std::string>("params.model", "").empty())
+        << "Need a model definition to score (config params.model)";
 
     CHECK(args.count("test") > 0 ||
-          !conf.get<std::string>("parameters.weights", "").empty())
-        << "Need model weights to score (config parameters.weights or argument --weights)";
+          !conf.get<std::string>("params.weights", "").empty())
+        << "Need model weights to score (config params.weights or argument --weights)";
 
     std::default_random_engine generator;
     std::uniform_real_distribution<double> distribution(0.0,1.0);
-
-    // Set device id and mode
-    // If the gpu flag is not provided, allow the mode and device to be set
-    // in the solver prototxt.
-    if (conf.get<std::string>("parameters.mode", "CPU") == "GPU")
-    {
-        LOG(INFO) << "Dynamic decision about device ID " << 0;    // just a joke
-        Caffe::SetDevice(0);
-        Caffe::set_mode(Caffe::GPU);
-    } else {
-        LOG(INFO) << "Use CPU.";
-        Caffe::set_mode(Caffe::CPU);
-    }
-
-    caffe::SolverParameter solver_param;
-    caffe::ReadProtoFromTextFileOrDie(
-        source->absolutize(conf.get<std::string>("parameters.solver")), &solver_param);
 
     // Instantiate the caffe net.
     std::string weights_file;
     if(args.count("test") > 0) {
         weights_file = args["test"].as<std::string>();
     }
-    if(weights_file.empty() && !conf.get<std::string>("parameters.weights", "").empty()) {
-        weights_file = conf.get<std::string>("parameters.weights");
+    if(weights_file.empty() && !conf.get<std::string>("params.weights", "").empty()) {
+        weights_file = conf.get<std::string>("params.weights");
     }
 
-    Net<float> caffe_net(conf.get<std::string>("parameters.model"), caffe::TEST);
-    caffe_net.CopyTrainedLayersFrom(weights_file);
+    caffe::NetParameter net_param;
+    net_param_from_config_and_model(&net_param, Phase::TEST, conf,
+                                    source->read(conf.get<std::string>("params.model")));
+    Net<float> net {net_param};
+    net.CopyTrainedLayersFrom(source->absolutize(weights_file));
 
-    int iterations = conf.get("parameters.test_iters", 50);
-    LOG(INFO) << "Running for " << iterations << " iterations (adjust by config parameters.test_iters).";
+    int iterations = conf.get("params.test_iter", 50);
+    LOG(INFO) << "Running for " << iterations << " iterations (adjust by config params.test_iter).";
     std::vector<Blob<float>* > bottom_vec;
     std::vector<int> test_score_output_id;
     std::vector<float> test_score;
@@ -174,13 +139,13 @@ int test(const bpo::variables_map& args, const bpt::ptree& conf, std::shared_ptr
     for (int iter = 0; iter < iterations; ++iter) {
         float iter_loss;
         const std::vector<Blob<float>*>& result =
-                caffe_net.Forward(bottom_vec, &iter_loss);
-        const float* labels = caffe_net.blob_by_name("label")->cpu_data();
+                net.Forward(bottom_vec, &iter_loss);
+        const float* labels = net.blob_by_name("labels")->cpu_data();
         loss += iter_loss;
         int idx = 0;
         for (int j = 0; j < result.size(); ++j) {
-            const std::string& output_name = caffe_net.blob_names()[
-                    caffe_net.output_blob_indices()[j]];
+            const std::string& output_name = net.blob_names()[
+                    net.output_blob_indices()[j]];
             const float* result_vec = result[j]->cpu_data();
             if(result[j]->count() > 2)
             {
@@ -231,10 +196,10 @@ int test(const bpo::variables_map& args, const bpt::ptree& conf, std::shared_ptr
     loss /= iterations;
     LOG(INFO) << "Loss: " << loss;
     for (int i = 0; i < test_score.size(); ++i) {
-        const std::string& output_name = caffe_net.blob_names()[
-                caffe_net.output_blob_indices()[test_score_output_id[i]]];
+        const std::string& output_name = net.blob_names()[
+                net.output_blob_indices()[test_score_output_id[i]]];
         const float loss_weight =
-                caffe_net.blob_loss_weights()[caffe_net.output_blob_indices()[i]];
+                net.blob_loss_weights()[net.output_blob_indices()[i]];
         std::ostringstream loss_msg_stream;
         const float mean_score = test_score[i] / iterations;
         if (loss_weight) {
@@ -254,34 +219,20 @@ int test(const bpo::variables_map& args, const bpt::ptree& conf, std::shared_ptr
         oss << std::endl;
     }
     LOG(INFO) << std::endl << oss.str();
-
-    return 0;
 }
 
 
 // Time: benchmark the execution time of a model.
 int time(const bpo::variables_map& args, const bpt::ptree& conf, std::shared_ptr<Source> source)
 {
-    CHECK(!conf.get<std::string>("parameters.model", "").empty())
-        << "Need a model definition to score (config parameters.model)";
+    CHECK(!conf.get<std::string>("params.model", "").empty())
+        << "Need a model definition to score (config params.model)";
 
-    if(conf.get("parameters.bench_iters", -1) == -1)
-        LOG(WARNING) << "Set parameters.bech_iter in config file. Using default 50";
+    if(conf.get("params.bench_iter", -1) == -1)
+        LOG(WARNING) << "Set params.bech_iter in config file. Using default 50";
 
-    // Set device id and mode
-    // If the gpu flag is not provided, allow the mode and device to be set
-    // in the solver prototxt.
-    if (conf.get<std::string>("parameters.mode", "CPU") == "GPU")
-    {
-        LOG(INFO) << "Dynamic decision about device ID " << 0;    // just a joke
-        Caffe::SetDevice(0);
-        Caffe::set_mode(Caffe::GPU);
-    } else {
-        LOG(INFO) << "Use CPU.";
-        Caffe::set_mode(Caffe::CPU);
-    }
     // Instantiate the caffe net.
-    Net<float> caffe_net(source->absolutize(conf.get<std::string>("parameters.model")),
+    Net<float> caffe_net(source->absolutize(conf.get<std::string>("params.model")),
                          caffe::TRAIN);
 
     // Do a clean forward and backward pass, so that memory allocation are done
@@ -300,7 +251,7 @@ int time(const bpo::variables_map& args, const bpt::ptree& conf, std::shared_ptr
     const std::vector<std::vector<Blob<float>*> >& top_vecs = caffe_net.top_vecs();
     const std::vector<std::vector<bool> >& bottom_need_backward =
             caffe_net.bottom_need_backward();
-    int iterations = conf.get("parameters.bench_iters", 50);
+    int iterations = conf.get("params.bench_iter", 50);
 
     LOG(INFO) << "*** Benchmark begins ***";
     LOG(INFO) << "Testing for " << iterations << " iterations.";
@@ -356,13 +307,13 @@ int time(const bpo::variables_map& args, const bpt::ptree& conf, std::shared_ptr
         iterations << " ms.";
     LOG(INFO) << "Total Time: " << total_timer.MilliSeconds() << " ms.";
     LOG(INFO) << "*** Benchmark ends ***";
-    return 0;
 }
+
 
 int dump(const bpo::variables_map& args, const bpt::ptree& conf, std::shared_ptr<Source> source)
 {
-    CHECK(!conf.get<std::string>("parameters.model", "").empty())
-        << "Need a model definition to score (config parameters.model)";
+    CHECK(!conf.get<std::string>("params.model", "").empty())
+        << "Need a model definition to score (config params.model)";
 
     CHECK(args.count("dump") > 0)
         << "Need model weights to dump (argument --weights)";
@@ -373,7 +324,7 @@ int dump(const bpo::variables_map& args, const bpt::ptree& conf, std::shared_ptr
     // Instantiate the caffe net.
     std::string weights_file = args["dump"].as<std::string>();
 
-    Net<float> caffe_net(conf.get<std::string>("parameters.model"), caffe::TRAIN);
+    Net<float> caffe_net(conf.get<std::string>("params.model"), caffe::TRAIN);
     caffe_net.CopyTrainedLayersFrom(weights_file);
 
     const std::vector<std::string> names = caffe_net.layer_names();
@@ -398,17 +349,57 @@ int dump(const bpo::variables_map& args, const bpt::ptree& conf, std::shared_ptr
 }
 
 
-int main(int argc, const char *argv[]) {
-    google::InitGoogleLogging(argv[0]);
+void guess(const bpo::variables_map& args, const bpt::ptree& conf, std::shared_ptr<Source> source,
+           std::ostream& results)
+{
+    std::vector<Blob<float>* > empty_bottom_vec;
+    // find a file holding trained network
+    std::string weights_file;
+    if(args.count("guess") > 0) weights_file = args["guess"].as<std::string>();
+    if(weights_file.empty() && !conf.get<std::string>("params.weights", "").empty()) {
+        weights_file = conf.get<std::string>("params.weights");
+    }
+    // we will construct only one network in TRAIN state
+    caffe::NetParameter net_param;
+    net_param_from_config_and_model(&net_param, Phase::GUESS,
+                                    conf, source->read(conf.get<std::string>("params.model")));
+    // Instantiate the caffe net.
+    caffe::Net<float> net {net_param};
+    net.CopyTrainedLayersFrom(source->absolutize(weights_file));
+    const std::vector<Blob<float>*>& result =
+        net.Forward(empty_bottom_vec, nullptr);
+    while(true) {
+         const float *guess = net.blob_by_name("result")->cpu_data();
+         const float *ids = net.blob_by_name("ids")->cpu_data();
+         for(int i=0; i<net.blob_by_name("result")->count(0,1); ++i) {
+            results << i << ": " << ids[i] << "," << guess[2*i] << std::endl;
+         }
+         break;
+    }
+}
 
-    std::ostream_iterator<string> newlineit {std::cout, "\n"};
+
+int main(int argc, const char *argv[])
+{
+    bfs::path cwd;     // in case of different SOURCE than CWD this saves original CWD
+    std::string cwds;  // holds the string of CWD (either from SOURCE or command CWD)
 
     // parse command line arguments
     bpo::variables_map args = parse_cmd_args(argc, argv);
     if(args.empty()) return 0;
 
+    if(args.count("source") > 0) {
+        cwds = args["source"].as<string>();
+    } else {
+        cwds = bfs::current_path().string();
+        FLAGS_logtostderr = 1;   // in case of not specified source - print LOG to stderr
+    }
+
+    // init logging and output
+    google::InitGoogleLogging(argv[0]);
+
     // load the source (folder.archive ...)
-    std::shared_ptr<Source> source {source_factory(args["source"].as<string>())};
+    std::shared_ptr<Source> source {source_factory(cwds)};
     CHECK(source) << "Cannot find any source handler for the path specified";
 
     // obtain a config file
@@ -419,8 +410,13 @@ int main(int argc, const char *argv[]) {
     bpt::ptree conf = parse_config_file(iconf.get());
     CHECK(!conf.empty()) << "Error parsing the config file";
 
-    CHECK_GE(args.count("train") + args.count("test") + args.count("time") + args.count("dump"), 1)
-        << "Specify either --test, --train, --time or --dump";
+    int num_params = args.count("train") +
+                     args.count("test") +
+                     args.count("time") +
+                     args.count("dump") +
+                     args.count("guess");
+
+    CHECK_GE(num_params, 1) << "Specify either --test, --train, --time, --dump or --guess";
 
     // if the user selected --cretedb <path> then just create database ?and quit?
     // if(args.count("createdb") > 0) {
@@ -431,15 +427,32 @@ int main(int argc, const char *argv[]) {
     //     return 0;
     // }
 
-    // ugly hack ... change CWD to the path in the argumentd
-    bfs::path cwd = bfs::current_path();
-    bfs::current_path(bfs::path(args["source"].as<string>()));
+    // if we have source specified then change CWD to the path in the argumentd
+
+    if(args.count("source") > 0) {
+        cwd = bfs::current_path();
+        bfs::current_path(bfs::path(args["source"].as<string>()));
+    }
+
+    // Set device id and mode
+    // If the gpu flag is not provided, allow the mode and device to be set
+    // in the solver prototxt.
+    if (conf.get<std::string>("params.mode", "CPU") == "GPU")
+    {
+        LOG(INFO) << "Dynamic decision about device ID " << 0;    // just a joke
+        Caffe::SetDevice(0);
+        Caffe::set_mode(Caffe::GPU);
+    } else {
+        LOG(INFO) << "Use CPU.";
+        Caffe::set_mode(Caffe::CPU);
+    }
 
     if(args.count("train") >= 1) {
         train(args, conf, source);
     }
     if(args.count("test") >= 1) {
-        test(args, conf, source);
+        // results to a file
+        test(args, conf, source, std::cout);
     }
     if(args.count("time") >= 1) {
         time(args, conf, source);
@@ -447,8 +460,13 @@ int main(int argc, const char *argv[]) {
     if(args.count("dump") >= 1) {
         dump(args, conf, source);
     }
+    if(args.count("guess") >= 1) {
+        guess(args, conf, source, std::cout);
+    }
 
-    // ugly hack ... revert the previous CWD
-    bfs::current_path(cwd);
+    // if source specified change CWD back to the original
+    if(args.count("source") > 0){
+        bfs::current_path(cwd);
+    }
     return 0;
 }

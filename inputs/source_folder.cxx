@@ -27,7 +27,7 @@ SourceFolder::SourceFolder(const std::string& dirname) : Source(), folder_(bfs::
         std::string fp = p.string().substr(bp_len); // get relative file path
         this->files_.push_back(fp);
         this->paths_[fp] = std::move(p);
-        LOG(INFO) << fp;
+        // LOG(INFO) << fp;
       }
     }
     else

@@ -5,11 +5,16 @@
 
 #include <iostream>
 #include <string>
+#include <memory>
 #include <boost/program_options.hpp>
 namespace bpo = boost::program_options;
 
 #include <boost/property_tree/ptree.hpp>
 namespace bpt = boost::property_tree;
+
+#include <caffe/proto/caffe.pb.h>
+
+#include "../vodigger.hxx"
 
 
 namespace vodigger {
@@ -23,6 +28,9 @@ namespace vodigger {
 	// Function to parse a JSON config file
 	boost::property_tree::ptree parse_config_file(std::istream*) noexcept;
 
+	void solver_param_from_config(caffe::SolverParameter&, const bpt::ptree&);
+
+	void net_param_from_config_and_model(caffe::NetParameter*, Phase, const bpt::ptree&, std::istream*);
 }
 
 #endif

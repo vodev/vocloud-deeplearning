@@ -45,13 +45,13 @@ SolverCaffe::SolverCaffe(const bpt::ptree& properties,
                                 std::shared_ptr<Source>& source) : Solver(properties, feeder, source)
 {
   // construct path to trained model
-  bfs::path snapshot_path = bfs::path(properties.get<std::string>("parameters.model")).replace_extension(bfs::path(".protobin"));
+  bfs::path snapshot_path = bfs::path(properties.get<std::string>("params.model")).replace_extension(bfs::path(".protobin"));
   snapshot_filename_ = snapshot_path.string();
-  // read solver parameters
-  CHECK(source->exists(properties.get<std::string>("parameters.solver"))) <<
+  // read solver params
+  CHECK(source->exists(properties.get<std::string>("params.solver"))) <<
     "Solver file not readable";
   {
-    std::istream* solver_stream = source->read(properties.get<std::string>("parameters.solver"));
+    std::istream* solver_stream = source->read(properties.get<std::string>("params.solver"));
     google::protobuf::io::IstreamInputStream gis {solver_stream};
 
     google::protobuf::TextFormat::Parse(&gis, &params_);
@@ -65,12 +65,12 @@ SolverCaffe::SolverCaffe(const bpt::ptree& properties,
   } else {
       caffe::Caffe::set_mode(caffe::Caffe::CPU);
   }
-  // read network parameters
-  CHECK(source->exists(properties.get<std::string>("parameters.model"))) <<
+  // read network params
+  CHECK(source->exists(properties.get<std::string>("params.model"))) <<
     "Model file not readable";
   caffe::NetParameter net_params;
   {
-    std::istream* model_stream = source->read(properties.get<std::string>("parameters.model"));
+    std::istream* model_stream = source->read(properties.get<std::string>("params.model"));
     google::protobuf::io::IstreamInputStream gis {model_stream};
 
     google::protobuf::TextFormat::Parse(&gis, &net_params);
@@ -273,7 +273,7 @@ void SolverCaffe::GDS_(size_t iter)
     float rate = this->params_.base_lr() * std::pow(params_.gamma(),
                                                     int(iter / this->params_.stepsize()));
 
-    // compute update value of network parameters (weights)
+    // compute update value of network params (weights)
     const std::vector<boost::shared_ptr<Blob<Dtype> > >& net_params = this->net_->params();
     const std::vector<Dtype>& net_params_lr = this->net_->params_lr();
     const std::vector<Dtype>& net_params_weight_decay =
