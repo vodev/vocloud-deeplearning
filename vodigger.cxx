@@ -31,7 +31,7 @@ using caffe::Layer;
 
 #include "utils/config.hxx"
 #include "inputs/source_factory.hxx"
-// #include "inputs/feeder_factory.hxx"
+
 using namespace vodigger;
 
 
@@ -64,7 +64,8 @@ int train(const bpo::variables_map& args, const bpt::ptree& conf, std::shared_pt
                                     conf, source->read(conf.get<std::string>("params.model")));
     solver_param.set_allocated_net_param(net_param);
 
-    boost::shared_ptr<caffe::Solver<float> > solver(caffe::GetSolver<float>(solver_param));
+    boost::shared_ptr<caffe::Solver<float> > solver(
+        caffe::SolverRegistry<float>::CreateSolver(solver_param));
 
     LOG(INFO) << "Starting Optimization";
     if (args.count("snapshot") > 0)

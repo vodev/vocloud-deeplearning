@@ -107,6 +107,8 @@ bpt::ptree parse_config_file(std::istream* iconf) noexcept
 void solver_param_from_config(caffe::SolverParameter& solver, const bpt::ptree& conf)
 {
     std::string lr_policies[] = {"fixed", "step", "exp", "inv", "multistep", "poly", "sigmoid"};
+
+    solver.set_type(conf.get("params.solver", "SGD"));
     solver.set_max_iter(conf.get("params.train.iter", 1000));
     solver.set_display(conf.get("params.train.display", int(solver.max_iter()/5)));
     if(!conf.get<std::string>("data.test", "").empty()) {

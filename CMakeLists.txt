@@ -62,7 +62,7 @@ endif()
 target_link_libraries(vodigger glog)
 
 
-if(NOT CPU_ONLY) 
+if(NOT CPU_ONLY)
 	find_package(CUDA REQUIRED)
 	if(CUDA_FOUND)
 		include_directories(${CUDA_TOOLKIT_INCLUDE})

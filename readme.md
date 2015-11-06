@@ -35,7 +35,7 @@ caffe's `solver.protobuf` file and has the same variables under section `"train"
 ### config.json
 
 ```
-data : {
+{
     "name":"stellar_spectra",
     "data":
     {
@@ -60,14 +60,15 @@ data : {
             "id": 0,
             "chunk_size": 0.2
         }
-        
+
     }
     "params":
     {
         "mode": "GPU",
         "model": "model1.prototxt",
+        "solver": "SGD",         /* optional, "SGD" is default value */
         "train": {
-            "iter": 200, // how many times will be input layer filled with new data
+            "iter": 200,         /* how many times will be input layer filled with new data */
             "base_lr": 0.1,
             "lr_policy": "step", /* learning rate policy: "fixed": keep lr, "step" drop the lr */
             "stepsize": 150,     /* learning rate drops every # iterations */
@@ -93,7 +94,7 @@ data : {
  + __params__ -- specifies parameters of solver. The model definition is in a separate file
     + __mode__ [string] "GPU", "CPU" -- the same as caffe's `mode` parameter - denotes device to run the
     network on
-    + __train__ [object] -- all parameters will be used as caffe's SOLVER parameters. For more details 
+    + __train__ [object] -- all parameters will be used as caffe's SOLVER parameters. For more details
     please refer to [caffe's documentation](http://caffe.berkeleyvision.org/tutorial/solver.html)
         + __iter__ [number] -- Number of times of calling FORWARD function of a neural net. Note
         that in case of a  large file and small `batch_size` even many iterations doesn't guarantee usage of
