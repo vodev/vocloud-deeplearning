@@ -5,19 +5,22 @@ project(VO-digger)
 # cmake -DCMAKE_BUILD_TYPE=Release|Debug|RelWithDebInfo
 add_subdirectory(utils)
 add_subdirectory(inputs)
-# add_subdirectory(solvers)
 
 # define outcomes
 add_executable(vodigger vodigger.cxx
 	$<TARGET_OBJECTS:utils>
 	$<TARGET_OBJECTS:sources>
-#	$<TARGET_OBJECTS:solvers>
-	# $<TARGET_OBJECTS:feeders>
 )
 add_dependencies(vodigger utils sources) # feeders solvers
 
 # set globally that we compile as c++11
-set(VODDIGER_CXX_FLAGS "-std=c++11")
+if(UNIX AND NOT APPLE)
+	set(VODDIGER_CXX_FLAGS "-std=c++11")
+endif()
+if(APPLE)
+	set(VODDIGER_CXX_FLAGS "-std=c++1y")
+endif()
+
 
 # set that while cmaking as: cmake -DCPU_ONLY=ON .
 if(CPU_ONLY)
@@ -28,8 +31,21 @@ endif()
 set(CMAKE_CXX_FLAGS ${CMAKE_CXX_FLAGS} ${VODDIGER_CXX_FLAGS} CACHE INTERNAL "cmake_cxx_flags")
 
 # find necessary libraries and link them
-target_link_libraries(vodigger m nsl)  # those two libs exists for sure
+target_link_libraries(vodigger m)
 
+if(UNIX AND NOT APPLE)
+	target_link_libraries(vodigger nsl)
+endif()
+
+find_package(BLAS REQUIRED)
+if(BLAS_FOUND)
+	if(APPLE)
+		target_link_libraries(vodigger "-framework Accelerate")
+		set(BLAS_INCLUDE "/System/Library/Frameworks/Accelerate.framework/Frameworks/vecLib.framework/Headers/")
+	endif()
+	include_directories(${BLAS_INCLUDE})
+	target_link_libraries(vodigger ${BLAS_LIBRARIES})
+endif()
 
 # more at /usr/share/cmake-2.8/Modules
 find_package(Boost REQUIRED program_options system filesystem)
@@ -39,13 +55,6 @@ if(Boost_FOUND)
 endif()
 
 
-find_library(LIB_LEVELDB leveldb)
-if(${LIB_LEVELDB} STREQUAL LIB_LEVELDB-NOTFOUND)
-	message(FATAL_ERROR "leveldb library not found")
-endif()
-target_link_libraries(vodigger leveldb)
-
-
 find_library(LIB_GLOG glog)
 if(${LIB_GLOG} STREQUAL LIB_GLOG-NOTFOUND)
 	message(FATAL_ERROR "glog library not found")
@@ -53,10 +62,12 @@ endif()
 target_link_libraries(vodigger glog)
 
 
-find_package(CUDA REQUIRED)
-if(CUDA_FOUND)
-	include_directories(${CUDA_TOOLKIT_INCLUDE})
-	target_link_libraries(vodigger ${CUDA_CUBLAS_LIBRARIES})
+if(NOT CPU_ONLY) 
+	find_package(CUDA REQUIRED)
+	if(CUDA_FOUND)
+		include_directories(${CUDA_TOOLKIT_INCLUDE})
+		target_link_libraries(vodigger ${CUDA_CUBLAS_LIBRARIES})
+	endif()
 endif()
 
 
