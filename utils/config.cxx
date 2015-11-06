@@ -12,20 +12,22 @@ namespace bjson = boost::property_tree::json_parser;
 namespace vodigger {
 
 
-bool is_valid_args(bpo::variables_map& args) noexcept {
+bool is_valid_args(bpo::variables_map& args) noexcept
+{
     return args.count("source") >= 0 && // source can be ommited ... we use CWD then
            args.count("help") == 0;
 }
 
 
-void print_help_args(bpo::options_description& cmd_opts, std::string title) noexcept {
+void print_help_args(bpo::options_description& cmd_opts, std::string title) noexcept
+{
     if(!title.empty()) std::cout << title << std::endl;
     std::cout << "usage: vodigger [options] <SOURCE>" << std::endl << std::endl;
     std::cout << cmd_opts << "\n";
 }
 
 
-bool has_integrity(const boost::property_tree::ptree& params)
+bool has_integrity(const boost::property_tree::ptree& params) noexcept
 {
     // save the state to a variable so all checks proceed at the same time
     bool result = true;
@@ -49,7 +51,7 @@ boost::program_options::variables_map parse_cmd_args(int argc, const char** argv
         ("test", bpo::value<std::string>(), "test network with specified weight file (can be relative to the source dir)")
         ("dump", bpo::value<std::string>(), "dump parameters of network specified by weight file (can be relative to the source dir)")
         ("guess", bpo::value<std::string>(), "use pretrained network to classify unknown data (can be relative to the source dir)")
-        ("time", "benchmark network by performing bench_iter forward and backward passes")
+        ("time", "benchmark network by performing params.benchmark.iter forward and backward passes")
         ("weights,w", bpo::value<std::string>(), "snapshot of model")
         ("createdb,d",  bpo::value<std::string>(), "path where to create leveldb from given (csv) source")
         ("config,c", bpo::value<std::string>()->default_value("config.json"), "name of a config file")
@@ -87,7 +89,8 @@ boost::program_options::variables_map parse_cmd_args(int argc, const char** argv
 }
 
 
-bpt::ptree parse_config_file(std::istream* iconf) noexcept{
+bpt::ptree parse_config_file(std::istream* iconf) noexcept
+{
     bpt::ptree pt;
     try {
         bjson::read_json(*iconf, pt);
@@ -104,7 +107,7 @@ bpt::ptree parse_config_file(std::istream* iconf) noexcept{
 void solver_param_from_config(caffe::SolverParameter& solver, const bpt::ptree& conf)
 {
     std::string lr_policies[] = {"fixed", "step", "exp", "inv", "multistep", "poly", "sigmoid"};
-    solver.set_max_iter(conf.get("params.train_iter", 1000));
+    solver.set_max_iter(conf.get("params.train.iter", 1000));
     solver.set_display(conf.get("params.train.display", int(solver.max_iter()/5)));
     if(!conf.get<std::string>("data.test", "").empty()) {
         solver.set_test_interval(conf.get("params.train.test_interval", int(solver.max_iter()/5)));
@@ -135,22 +138,27 @@ void solver_param_from_config(caffe::SolverParameter& solver, const bpt::ptree& 
 void net_param_from_config_and_model(caffe::NetParameter *net, Phase phase,
                                      const bpt::ptree& conf, std::istream* pfile)
 {
-    std::string traindata = conf.get<std::string>("data.train", "");
-    std::string testdata = conf.get<std::string>("data.test", "");
-    std::string guessdata = conf.get<std::string>("data.guess", "");
+    std::string traindata = conf.get<std::string>("data.train.file", "");
+    std::string testdata = conf.get<std::string>("data.test.file", "");
+    std::string guessdata = conf.get<std::string>("data.guess.file", "");
+    std::string prefix;
+
     caffe::NetParameter model;
 
     if(phase == Phase::TRAIN) {
         CHECK(!traindata.empty()) << "Specify training data";
         net->mutable_state()->set_phase(caffe::Phase::TRAIN);
+        prefix = "data.train";
     }
     if(phase == Phase::TEST) {
         CHECK(!testdata.empty()) << "Specify testing data";
         net->mutable_state()->set_phase(caffe::Phase::TEST);
+        prefix = "data.test";
     }
     if(phase == Phase::GUESS) {
         CHECK(!guessdata.empty()) << "Specify guessing data";
         net->mutable_state()->set_phase(caffe::Phase::TRAIN);
+        prefix = "data.guess";
     }
 
     if(phase == Phase::TRAIN || phase == Phase::GUESS)
@@ -162,14 +170,14 @@ void net_param_from_config_and_model(caffe::NetParameter *net, Phase phase,
         caffe::NetStateRule *state = input_layer->add_include();
             state->set_phase((caffe::Phase::TRAIN));
         caffe::BigDataParameter *big_data_param = new caffe::BigDataParameter();
-            big_data_param->set_chunk_size(conf.get<float>("data.chunk_size"));
-            big_data_param->set_header(conf.get<int>("data.header", 0));
-            big_data_param->set_data_start(conf.get<int>("data.start"));
-            big_data_param->set_data_end(conf.get<int>("data.end"));
+            big_data_param->set_chunk_size(conf.get<float>(prefix + ".chunk_size"));
+            big_data_param->set_header(conf.get<int>(prefix+".header", 0));
+            big_data_param->set_data_start(conf.get<int>(prefix+".start"));
+            big_data_param->set_data_end(conf.get<int>(prefix+".end"));
             input_layer->add_top()->assign("data");
             // set label only for the TRAINing phase
             if(phase == Phase::TRAIN) {
-                big_data_param->set_label(conf.get<int>("data.label"));
+                big_data_param->set_label(conf.get<int>(prefix+".label"));
                 input_layer->add_top()->assign("labels");
                 big_data_param->set_source(traindata);
             } else {
@@ -192,12 +200,12 @@ void net_param_from_config_and_model(caffe::NetParameter *net, Phase phase,
         caffe::NetStateRule *state = input_layer->add_include();
             state->set_phase((caffe::Phase::TEST));
         caffe::BigDataParameter *big_data_param = new caffe::BigDataParameter();
-            big_data_param->set_chunk_size(conf.get<float>("data.chunk_size"));
-            big_data_param->set_header(conf.get<int>("data.header", 0));
-            big_data_param->set_data_start(conf.get<int>("data.start"));
-            big_data_param->set_data_end(conf.get<int>("data.end"));
+            big_data_param->set_chunk_size(conf.get<float>(prefix+".chunk_size"));
+            big_data_param->set_header(conf.get<int>(prefix+".header", 0));
+            big_data_param->set_data_start(conf.get<int>(prefix+".start"));
+            big_data_param->set_data_end(conf.get<int>(prefix+".end"));
         input_layer->add_top()->assign("data");
-            big_data_param->set_label(conf.get<int>("data.label"));
+            big_data_param->set_label(conf.get<int>(prefix+".label"));
         input_layer->add_top()->assign("labels");
             if(!conf.get<std::string>("data.separator", "").empty())
                 big_data_param->set_separator(conf.get<std::string>("data.separator"));

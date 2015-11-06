@@ -126,8 +126,8 @@ void test(const bpo::variables_map& args, const bpt::ptree& conf, std::shared_pt
     Net<float> net {net_param};
     net.CopyTrainedLayersFrom(source->absolutize(weights_file));
 
-    int iterations = conf.get("params.test_iter", 50);
-    LOG(INFO) << "Running for " << iterations << " iterations (adjust by config params.test_iter).";
+    int iterations = conf.get("params.test.iter", 50);
+    LOG(INFO) << "Running for " << iterations << " iterations (adjust by config params.test.iter).";
     std::vector<Blob<float>* > bottom_vec;
     std::vector<int> test_score_output_id;
     std::vector<float> test_score;
@@ -228,8 +228,8 @@ int time(const bpo::variables_map& args, const bpt::ptree& conf, std::shared_ptr
     CHECK(!conf.get<std::string>("params.model", "").empty())
         << "Need a model definition to score (config params.model)";
 
-    if(conf.get("params.bench_iter", -1) == -1)
-        LOG(WARNING) << "Set params.bech_iter in config file. Using default 50";
+    if(conf.get("params.benchmark.iter", -1) == -1)
+        LOG(WARNING) << "Set params.benchmark.iter in config file. Using default 50";
 
     // Instantiate the caffe net.
     Net<float> caffe_net(source->absolutize(conf.get<std::string>("params.model")),
@@ -251,7 +251,7 @@ int time(const bpo::variables_map& args, const bpt::ptree& conf, std::shared_ptr
     const std::vector<std::vector<Blob<float>*> >& top_vecs = caffe_net.top_vecs();
     const std::vector<std::vector<bool> >& bottom_need_backward =
             caffe_net.bottom_need_backward();
-    int iterations = conf.get("params.bench_iter", 50);
+    int iterations = conf.get("params.benchmark.iter", 50);
 
     LOG(INFO) << "*** Benchmark begins ***";
     LOG(INFO) << "Testing for " << iterations << " iterations.";
@@ -307,10 +307,11 @@ int time(const bpo::variables_map& args, const bpt::ptree& conf, std::shared_ptr
         iterations << " ms.";
     LOG(INFO) << "Total Time: " << total_timer.MilliSeconds() << " ms.";
     LOG(INFO) << "*** Benchmark ends ***";
+    return static_cast<int>(total_timer.MilliSeconds());
 }
 
 
-int dump(const bpo::variables_map& args, const bpt::ptree& conf, std::shared_ptr<Source> source)
+void dump(const bpo::variables_map& args, const bpt::ptree& conf, std::shared_ptr<Source> source)
 {
     CHECK(!conf.get<std::string>("params.model", "").empty())
         << "Need a model definition to score (config params.model)";
@@ -366,15 +367,18 @@ void guess(const bpo::variables_map& args, const bpt::ptree& conf, std::shared_p
     // Instantiate the caffe net.
     caffe::Net<float> net {net_param};
     net.CopyTrainedLayersFrom(source->absolutize(weights_file));
-    const std::vector<Blob<float>*>& result =
-        net.Forward(empty_bottom_vec, nullptr);
+    // get results from one forward pass (nullptr is 'loss' value - we don't compute it now)
+    const std::vector<Blob<float>*>& result = net.Forward(empty_bottom_vec, nullptr);
+    // run until IDs reset
     while(true) {
          const float *guess = net.blob_by_name("result")->cpu_data();
          const float *ids = net.blob_by_name("ids")->cpu_data();
+         float id = ids[0];
          for(int i=0; i<net.blob_by_name("result")->count(0,1); ++i) {
-            results << i << ": " << ids[i] << "," << guess[2*i] << std::endl;
+            if(ids[i] < id) break;
+            results << i << "," << ids[i] << "," << guess[i] << std::endl;
+            id = ids[i];
          }
-         break;
     }
 }
 
@@ -404,7 +408,7 @@ int main(int argc, const char *argv[])
 
     // obtain a config file
     std::unique_ptr<std::istream> iconf {source->read(args["config"].as<string>())};
-    CHECK(iconf) << "Config file " << args["config"].as<string>() << " wasn't found";
+    CHECK(iconf->good()) << "Config file " << args["config"].as<string>() << " wasn't found";
 
     // parse the config file
     bpt::ptree conf = parse_config_file(iconf.get());
@@ -451,7 +455,6 @@ int main(int argc, const char *argv[])
         train(args, conf, source);
     }
     if(args.count("test") >= 1) {
-        // results to a file
         test(args, conf, source, std::cout);
     }
     if(args.count("time") >= 1) {
@@ -461,7 +464,16 @@ int main(int argc, const char *argv[])
         dump(args, conf, source);
     }
     if(args.count("guess") >= 1) {
-        guess(args, conf, source, std::cout);
+        std::ostream* results;
+        if(!conf.get<std::string>("output.guess", "").empty()) {
+            results = new std::ofstream(conf.get<std::string>("output.guess"));
+            guess(args, conf, source, *results);
+            dynamic_cast<std::ofstream*>(results)->close();
+            delete results;
+            results = nullptr;
+        } else {
+            guess(args, conf, source, std::cout);
+        }
     }
 
     // if source specified change CWD back to the original
