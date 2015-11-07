@@ -14,8 +14,7 @@ namespace vodigger {
 
 bool is_valid_args(bpo::variables_map& args) noexcept
 {
-    return args.count("source") >= 0 && // source can be ommited ... we use CWD then
-           args.count("help") == 0;
+    return args.count("help") == 0;
 }
 
 
@@ -111,9 +110,10 @@ void solver_param_from_config(caffe::SolverParameter& solver, const bpt::ptree& 
     solver.set_type(conf.get("params.solver", "SGD"));
     solver.set_max_iter(conf.get("params.train.iter", 1000));
     solver.set_display(conf.get("params.train.display", int(solver.max_iter()/5)));
-    if(!conf.get<std::string>("data.test", "").empty()) {
+    if(!conf.get<std::string>("data.test.file", "").empty()) {
         solver.set_test_interval(conf.get("params.train.test_interval", int(solver.max_iter()/5)));
-        solver.add_test_iter(conf.get("params.train.test_iter", 5));
+        solver.add_test_iter(
+            conf.get<int>("params.train.test_iter", conf.get<int>("params.test.iter", 5)));
     }
     solver.set_base_lr(conf.get("params.train.base_lr", 0.01));
     solver.set_lr_policy(conf.get("params.train.lr_policy", lr_policies[1]));
@@ -140,82 +140,57 @@ void solver_param_from_config(caffe::SolverParameter& solver, const bpt::ptree& 
 void net_param_from_config_and_model(caffe::NetParameter *net, Phase phase,
                                      const bpt::ptree& conf, std::istream* pfile)
 {
-    std::string traindata = conf.get<std::string>("data.train.file", "");
-    std::string testdata = conf.get<std::string>("data.test.file", "");
-    std::string guessdata = conf.get<std::string>("data.guess.file", "");
-    std::string prefix;
-
     caffe::NetParameter model;
+    std::string prefix, sourcefile;
 
-    if(phase == Phase::TRAIN) {
-        CHECK(!traindata.empty()) << "Specify training data";
-        net->mutable_state()->set_phase(caffe::Phase::TRAIN);
-        prefix = "data.train";
-    }
-    if(phase == Phase::TEST) {
-        CHECK(!testdata.empty()) << "Specify testing data";
-        net->mutable_state()->set_phase(caffe::Phase::TEST);
-        prefix = "data.test";
-    }
-    if(phase == Phase::GUESS) {
-        CHECK(!guessdata.empty()) << "Specify guessing data";
-        net->mutable_state()->set_phase(caffe::Phase::TRAIN);
-        prefix = "data.guess";
-    }
+    if(phase == Phase::TRAIN) prefix = "data.train";
+    if(phase == Phase::TEST) prefix = "data.test";
+    if(phase == Phase::GUESS) prefix = "data.guess";
 
-    if(phase == Phase::TRAIN || phase == Phase::GUESS)
-    {
-        // init TRAIN input layer using BigDataLayer
-        caffe::LayerParameter *input_layer = net->add_layer();
-        input_layer->set_name("input");
+    sourcefile = conf.get<std::string>(prefix + ".file", "");
+    CHECK(!sourcefile.empty()) << "Specify data source file";
+
+    net->mutable_state()->set_phase(
+        phase == Phase::TEST ? caffe::Phase::TEST : caffe::Phase::TRAIN);
+
+    // add input layer
+    caffe::LayerParameter *input_layer = net->add_layer();
         input_layer->set_type("BigData");
-        caffe::NetStateRule *state = input_layer->add_include();
-            state->set_phase((caffe::Phase::TRAIN));
-        caffe::BigDataParameter *big_data_param = new caffe::BigDataParameter();
-            big_data_param->set_chunk_size(conf.get<float>(prefix + ".chunk_size"));
-            big_data_param->set_header(conf.get<int>(prefix+".header", 0));
-            big_data_param->set_data_start(conf.get<int>(prefix+".start"));
-            big_data_param->set_data_end(conf.get<int>(prefix+".end"));
-            input_layer->add_top()->assign("data");
-            // set label only for the TRAINing phase
-            if(phase == Phase::TRAIN) {
-                big_data_param->set_label(conf.get<int>(prefix+".label"));
-                input_layer->add_top()->assign("labels");
-                big_data_param->set_source(traindata);
-            } else {
-                big_data_param->set_source(guessdata);
-                input_layer->add_top()->assign("ids");
-            }
-            if(!conf.get<std::string>("data.separator", "").empty())
-                big_data_param->set_separator(conf.get<std::string>("data.separator"));
-            if(!conf.get<std::string>("data.newline", "").empty())
-                big_data_param->set_newline(conf.get<std::string>("data.newline"));
-        input_layer->set_allocated_big_data_param(big_data_param);
-    }
-
-    if(phase == Phase::TEST)
-    {
-        // init TEST input layer using BigDataLayer
-        caffe::LayerParameter *input_layer = net->add_layer();
-        input_layer->set_name("test_input");
-        input_layer->set_type("BigData");
-        caffe::NetStateRule *state = input_layer->add_include();
-            state->set_phase((caffe::Phase::TEST));
-        caffe::BigDataParameter *big_data_param = new caffe::BigDataParameter();
-            big_data_param->set_chunk_size(conf.get<float>(prefix+".chunk_size"));
-            big_data_param->set_header(conf.get<int>(prefix+".header", 0));
-            big_data_param->set_data_start(conf.get<int>(prefix+".start"));
-            big_data_param->set_data_end(conf.get<int>(prefix+".end"));
+        input_layer->set_name(phase == Phase::TEST ? "test_input" : "input");
         input_layer->add_top()->assign("data");
-            big_data_param->set_label(conf.get<int>(prefix+".label"));
+
+    // set correct Phase (caffe knows only TRAIN and TEST)
+    caffe::NetStateRule *state = input_layer->add_include();
+        state->set_phase(phase == Phase::TEST ? caffe::Phase::TEST : caffe::Phase::TRAIN);
+
+    // init BigDataParameters from config file
+    caffe::BigDataParameter *big_data_param = new caffe::BigDataParameter();
+        big_data_param->set_source(sourcefile);
+        big_data_param->set_chunk_size(conf.get<float>(prefix + ".chunk_size"));
+        big_data_param->set_header(conf.get<int>(prefix+".header", 0));
+        big_data_param->set_data_start(conf.get<int>(prefix+".start"));
+        big_data_param->set_data_end(conf.get<int>(prefix+".end"));
+        // search for separator resp. newline in specific "test/train" first and then global "data"
+        if(!conf.get<std::string>(prefix + ".separator", "").empty())
+            big_data_param->set_separator(conf.get<std::string>(prefix + ".separator"));
+        else if(!conf.get<std::string>("data.separator", "").empty())
+                 big_data_param->set_separator(conf.get<std::string>("data.separator"));
+        if(!conf.get<std::string>(prefix + ".newline", "").empty())
+            big_data_param->set_newline(conf.get<std::string>(prefix + ".newline"));
+        else if(!conf.get<std::string>("data.newline", "").empty())
+                 big_data_param->set_newline(conf.get<std::string>("data.newline"));
+
+    // set label only for TRAIN and TEST phases
+    if(phase == Phase::TRAIN || phase == Phase::TEST) {
+        big_data_param->set_label(conf.get<int>(prefix+".label"));
         input_layer->add_top()->assign("labels");
-            if(!conf.get<std::string>("data.separator", "").empty())
-                big_data_param->set_separator(conf.get<std::string>("data.separator"));
-            if(!conf.get<std::string>("data.newline", "").empty())
-                big_data_param->set_newline(conf.get<std::string>("data.newline"));
-            big_data_param->set_source(testdata);
-        input_layer->set_allocated_big_data_param(big_data_param);
     }
+    // guess requires reference value (eg. ID) for every dato
+    if(phase == Phase::GUESS) {
+        input_layer->add_top()->assign("ids");
+    }
+
+    input_layer->set_allocated_big_data_param(big_data_param);
 
     // add whole model definition from a file
     if(pfile != nullptr)
