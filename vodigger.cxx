@@ -58,11 +58,19 @@ int train(const bpo::variables_map& args, const bpt::ptree& conf, std::shared_pt
         << "Need a model definition to train.";
 
     caffe::SolverParameter solver_param;
+    caffe::NetParameter *train_net_param = new caffe::NetParameter(), *test_net_param = nullptr;
+
     solver_param_from_config(solver_param, conf);
-    caffe::NetParameter *net_param = new caffe::NetParameter();
-    net_param_from_config_and_model(net_param, Phase::TRAIN,
+    net_param_from_config_and_model(train_net_param, Phase::TRAIN,
                                     conf, source->read(conf.get<std::string>("params.model")));
-    solver_param.set_allocated_net_param(net_param);
+    solver_param.set_allocated_train_net_param(train_net_param);
+
+    if(!conf.get<std::string>("data.test.file", "").empty()) {
+        // we have testing data so we can build a testing network
+        test_net_param = solver_param.add_test_net_param();
+        net_param_from_config_and_model(test_net_param, Phase::TEST,
+                                        conf, source->read(conf.get<std::string>("params.model")));
+    }
 
     boost::shared_ptr<caffe::Solver<float> > solver(
         caffe::SolverRegistry<float>::CreateSolver(solver_param));
