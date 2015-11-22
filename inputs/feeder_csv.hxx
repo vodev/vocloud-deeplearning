@@ -17,9 +17,8 @@ namespace vodigger {
 class FeederCsv : public Feeder {
 
 	char delim_ = ',';
-	bool has_header_ = true;
 	// indices of columns in CSV files
-	int id_, label_, data_start_, data_end_;
+	int id_, label_, data_start_, data_end_, header_;
 	// path to sources for phases train/test/guess
 	std::array<std::string, 3> data_source_;
 	// data handling

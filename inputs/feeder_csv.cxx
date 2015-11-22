@@ -55,20 +55,20 @@ namespace vodigger {
 
 FeederCsv::FeederCsv(std::shared_ptr<Source>& source, bpt::ptree& params) : Feeder(source, params)
 {
-  this->delim_ = params.get("data.delimiter", ',');
-  this->has_header_ = params.get("data.header", true);
-  this->id_ = params.get<int>("data.id", -1);
-  this->label_ = params.get<int>("data.label", -1);
-  this->data_start_ = params.get<int>("data.start", -1);
-  this->data_end_ = params.get<int>("data.end", -1);
+  this->delim_ = params.get("data.delimiter", params.get("data.train.delimiter", ','));
+  this->header_ = params.get("data.train.header", params.get("data.test.header", 1));
+  this->id_ = params.get<int>("data.guess.id", -1);
+  this->label_ = params.get<int>("data.train.label", params.get<int>("data.test.label", -1));
+  this->data_start_ = params.get<int>("data.train.start", params.get<int>("data.test.start", -1));
+  this->data_end_ = params.get<int>("data.train.end", params.get<int>("data.test.end", -1));
 
   this->data_.fill(nullptr);
   this->labels_.fill(nullptr);
   this->nums_.fill(0);
 
-  this->data_source_[TRAIN] = params.get<std::string>("data.train", "");
-  this->data_source_[TEST]  = params.get<std::string>("data.test", "");
-  this->data_source_[GUESS] = params.get<std::string>("data.guess", "");
+  this->data_source_[TRAIN] = params.get<std::string>("data.train.file", "");
+  this->data_source_[TEST]  = params.get<std::string>("data.test.file", "");
+  this->data_source_[GUESS] = params.get<std::string>("data.guess.file", "");
 }
 
 
@@ -144,11 +144,11 @@ void FeederCsv::prefetch_data(Phase phase)
   LOG(INFO) << "CSV settings -- delimiter: '" << this->delim_
             << "' label: " << this->label_
             << " datacols: [" << this->data_start_ << ", " << this->data_end_
-            << "] header: " << (this->has_header_ ? "yes" : "no");
+            << "] header: " << this->header_;
 
   for(std::istream *stream: streams) {
     // strip header if set
-    if(this->has_header_) {
+    for(int i=0; i < this->header_; ++i) {
       std::getline(*stream, header);
       size_t colcount = count(header.begin(), header.end(), this->delim_);
       if(colcount < VD_MAX(this->data_end_, this->label_) ) {

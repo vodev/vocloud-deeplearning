@@ -362,7 +362,21 @@ void dump(const bpo::variables_map& args, const bpt::ptree& conf, std::shared_pt
 void guess(const bpo::variables_map& args, const bpt::ptree& conf, std::shared_ptr<Source> source,
            std::ostream& results)
 {
+    std::istream *src = source->read(conf.get<std::string>("data.guess.file"));
     std::vector<Blob<float>* > empty_bottom_vec;
+    // Blob<float> *data_blob = new Blob<float>(), *ids_blob = new Blob<float>(), *results_blob = new Blob<float>();
+    char buff[255], separator, newline;
+    int header = 0;
+    float id = 0;
+
+    // top_vec.push_back(data); top_vec.push_back(ids); top_vec.push_back(results);
+    separator = conf.get<std::string>("data.guess.separator",
+                                      conf.get<std::string>("data.separator", ",")).c_str()[0];
+    newline = conf.get<std::string>("data.guess.newline",
+                                    conf.get<std::string>("data.newline", "\n")).c_str()[0];
+    header = conf.get<int>("data.guess.header", 0);
+    for(int i=0; i < header; ++i) src->ignore(2147483647, newline);
+
     // find a file holding trained network
     std::string weights_file;
     if(args.count("guess") > 0) weights_file = args["guess"].as<std::string>();
@@ -373,22 +387,28 @@ void guess(const bpo::variables_map& args, const bpt::ptree& conf, std::shared_p
     caffe::NetParameter net_param;
     net_param_from_config_and_model(&net_param, Phase::GUESS,
                                     conf, source->read(conf.get<std::string>("params.model")));
-    // Instantiate the caffe net.
-    caffe::Net<float> net {net_param};
+    // Instantiate the caffe net
+    Net<float> net {net_param};
     net.CopyTrainedLayersFrom(source->absolutize(weights_file));
-    // get results from one forward pass (nullptr is 'loss' value - we don't compute it now)
-    const std::vector<Blob<float>*>& result = net.Forward(empty_bottom_vec, nullptr);
     // run until IDs reset
     while(true) {
-         const float *guess = net.blob_by_name("result")->cpu_data();
-         const float *ids = net.blob_by_name("ids")->cpu_data();
-         float id = ids[0];
-         for(int i=0; i<net.blob_by_name("result")->count(0,1); ++i) {
-            if(ids[i] < id) break;
-            results << i << "," << ids[i] << "," << guess[i] << std::endl;
-            id = ids[i];
-         }
+        size_t i = 0;
+        // get results from one forward pass (nullptr is 'loss' value - we don't compute it now)
+        net.Forward(empty_bottom_vec);
+        const float *guess = net.blob_by_name("result")->cpu_data();
+        const size_t guesses = net.blob_by_name("result")->count(0,1);
+        const float *ids = net.blob_by_name("ids")->cpu_data();
+        for(; i < guesses; ++i) {
+           if(ids[i] < id) break;               // if we loop in data, break
+           src->getline(buff, 255, separator);  // obtain REF; we expect it to be in the first column
+           src->ignore(2147483647, newline);    // skip the rest of row
+           results << buff << separator << guess[2*i] << separator << guess[2*i+1] << newline;
+           id = ids[i];
+        }
+        if(i < guesses) break;
+        results.flush();
     }
+    delete src;
 }
 
 
@@ -473,16 +493,10 @@ int main(int argc, const char *argv[])
         dump(args, conf, source);
     }
     if(args.count("guess") >= 1) {
-        std::ostream* results;
-        if(!conf.get<std::string>("output.guess", "").empty()) {
-            results = new std::ofstream(conf.get<std::string>("output.guess"));
-            guess(args, conf, source, *results);
-            dynamic_cast<std::ofstream*>(results)->close();
-            delete results;
-            results = nullptr;
-        } else {
-            guess(args, conf, source, std::cout);
-        }
+        std::ostream *results = source->write(conf.get("output.guess", "output.csv"));
+        guess(args, conf, source, *results);
+        // dynamic_cast<std::ofstream*>(results)->close();
+        delete results;
     }
 
     // if source specified change CWD back to the original

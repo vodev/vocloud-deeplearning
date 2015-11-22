@@ -66,7 +66,7 @@ std::ostream* SourceFolder::write(const std::string& filename)
 {
   bfs::path ap = (this->folder_ / bfs::path(filename));
   LOG(INFO) << "Requested writing to " << ap.string() << std::endl;
-  CHECK(!bfs::exists(ap)) << "Can't write to file '" << ap.string() << "'', already exists";
+  // CHECK(!bfs::exists(ap)) << "Can't write to file '" << ap.string() << "'', already exists";
   return new std::ofstream(ap.native(), std::ios::binary | std::ios::trunc);
 }
 

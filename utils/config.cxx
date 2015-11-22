@@ -167,9 +167,13 @@ void net_param_from_config_and_model(caffe::NetParameter *net, Phase phase,
     caffe::BigDataParameter *big_data_param = new caffe::BigDataParameter();
         big_data_param->set_source(sourcefile);
         big_data_param->set_chunk_size(conf.get<float>(prefix + ".chunk_size"));
-        big_data_param->set_header(conf.get<int>(prefix+".header", 0));
         big_data_param->set_data_start(conf.get<int>(prefix+".start"));
         big_data_param->set_data_end(conf.get<int>(prefix+".end"));
+        big_data_param->set_header(conf.get<int>(prefix+".header", 0));
+        big_data_param->set_rand_skip(conf.get<int>(prefix+".skip", 0));
+        big_data_param->set_cache(conf.get<bool>(prefix+".cache", true) ?
+            ::caffe::BigDataParameter_CacheControl_ENABLED :
+            ::caffe::BigDataParameter_CacheControl_DISABLED);
         // search for separator resp. newline in specific "test/train" first and then global "data"
         if(!conf.get<std::string>(prefix + ".separator", "").empty())
             big_data_param->set_separator(conf.get<std::string>(prefix + ".separator"));
