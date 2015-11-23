@@ -143,50 +143,50 @@ void net_param_from_config_and_model(caffe::NetParameter *net, Phase phase,
     caffe::NetParameter model;
     std::string prefix, sourcefile;
 
-    if(phase == Phase::TRAIN) prefix = "data.train";
-    if(phase == Phase::TEST) prefix = "data.test";
-    if(phase == Phase::GUESS) prefix = "data.guess";
+    if(phase == Phase::TRAIN) prefix = "train";
+    if(phase == Phase::TEST)  prefix = "test";
+    if(phase == Phase::GUESS) prefix = "guess";
 
-    sourcefile = conf.get<std::string>(prefix + ".file", "");
+    sourcefile = conf.get<std::string>("data."+prefix+".file", "");
     CHECK(!sourcefile.empty()) << "Specify data source file";
 
     net->mutable_state()->set_phase(
-        phase == Phase::TEST ? caffe::Phase::TEST : caffe::Phase::TRAIN);
+        phase == Phase::TRAIN ? caffe::Phase::TRAIN : caffe::Phase::TEST);
 
     // add input layer
     caffe::LayerParameter *input_layer = net->add_layer();
         input_layer->set_type("BigData");
-        input_layer->set_name(phase == Phase::TEST ? "test_input" : "input");
+        input_layer->set_name(prefix+"_input");
         input_layer->add_top()->assign("data");
 
     // set correct Phase (caffe knows only TRAIN and TEST)
     caffe::NetStateRule *state = input_layer->add_include();
-        state->set_phase(phase == Phase::TEST ? caffe::Phase::TEST : caffe::Phase::TRAIN);
+        state->set_phase(phase == Phase::TRAIN ? caffe::Phase::TRAIN : caffe::Phase::TEST);
 
     // init BigDataParameters from config file
     caffe::BigDataParameter *big_data_param = new caffe::BigDataParameter();
         big_data_param->set_source(sourcefile);
-        big_data_param->set_chunk_size(conf.get<float>(prefix + ".chunk_size"));
-        big_data_param->set_data_start(conf.get<int>(prefix+".start"));
-        big_data_param->set_data_end(conf.get<int>(prefix+".end"));
-        big_data_param->set_header(conf.get<int>(prefix+".header", 0));
-        big_data_param->set_rand_skip(conf.get<int>(prefix+".skip", 0));
-        big_data_param->set_cache(conf.get<bool>(prefix+".cache", true) ?
+        big_data_param->set_chunk_size(conf.get<float>("data."+prefix+".chunk_size"));
+        big_data_param->set_data_start(conf.get<int>(  "data."+prefix+".start"));
+        big_data_param->set_data_end  (conf.get<int>(  "data."+prefix+".end"));
+        big_data_param->set_header    (conf.get<int>(  "data."+prefix+".header", 0));
+        big_data_param->set_rand_skip (conf.get<int>(  "data."+prefix+".skip",   0));
+        big_data_param->set_cache     (conf.get<bool>( "data."+prefix+".cache",  true) ?
             ::caffe::BigDataParameter_CacheControl_ENABLED :
             ::caffe::BigDataParameter_CacheControl_DISABLED);
         // search for separator resp. newline in specific "test/train" first and then global "data"
-        if(!conf.get<std::string>(prefix + ".separator", "").empty())
-            big_data_param->set_separator(conf.get<std::string>(prefix + ".separator"));
+        if(!conf.get<std::string>("data."+prefix+".separator", "").empty())
+            big_data_param->set_separator(conf.get<std::string>("data."+prefix+".separator"));
         else if(!conf.get<std::string>("data.separator", "").empty())
                  big_data_param->set_separator(conf.get<std::string>("data.separator"));
-        if(!conf.get<std::string>(prefix + ".newline", "").empty())
-            big_data_param->set_newline(conf.get<std::string>(prefix + ".newline"));
+        if(!conf.get<std::string>("data."+prefix+".newline", "").empty())
+            big_data_param->set_newline(conf.get<std::string>("data."+prefix+".newline"));
         else if(!conf.get<std::string>("data.newline", "").empty())
                  big_data_param->set_newline(conf.get<std::string>("data.newline"));
 
     // set label only for TRAIN and TEST phases
     if(phase == Phase::TRAIN || phase == Phase::TEST) {
-        big_data_param->set_label(conf.get<int>(prefix+".label"));
+        big_data_param->set_label(conf.get<int>("data."+prefix+".label"));
         input_layer->add_top()->assign("labels");
     }
     // guess requires reference value (eg. ID) for every dato
