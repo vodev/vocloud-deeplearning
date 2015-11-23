@@ -399,11 +399,12 @@ void guess(const bpo::variables_map& args, const bpt::ptree& conf, std::shared_p
            if(ids[i] < id) break;               // if we loop in data, break
            for(int c=0; c<id_col;++c) src->ignore(2147483647, separator);  // find position of ID/REF
            src->getline(buff, 255, separator);  // obtain REF; we expect it to be in the first column
+           if(!src->good()) break;
            src->ignore(2147483647, newline);    // skip the rest of row
            results << buff << separator << guess[2*i] << separator << guess[2*i+1] << newline;
            id = ids[i];
         }
-        if(i < guesses) break;
+        if(i < guesses || !src->good()) break;
         results.flush();
     }
     delete src;
