@@ -364,17 +364,14 @@ void guess(const bpo::variables_map& args, const bpt::ptree& conf, std::shared_p
 {
     std::istream *src = source->read(conf.get<std::string>("data.guess.file"));
     std::vector<Blob<float>* > empty_bottom_vec;
-    // Blob<float> *data_blob = new Blob<float>(), *ids_blob = new Blob<float>(), *results_blob = new Blob<float>();
-    char buff[255], separator, newline;
-    int header = 0;
+    char buff[255];
     float id = 0;
-
-    // top_vec.push_back(data); top_vec.push_back(ids); top_vec.push_back(results);
-    separator = conf.get<std::string>("data.guess.separator",
+    const char separator = conf.get<std::string>("data.guess.separator",
                                       conf.get<std::string>("data.separator", ",")).c_str()[0];
-    newline = conf.get<std::string>("data.guess.newline",
+    const char newline = conf.get<std::string>("data.guess.newline",
                                     conf.get<std::string>("data.newline", "\n")).c_str()[0];
-    header = conf.get<int>("data.guess.header", 0);
+    const int header = conf.get<int>("data.guess.header", 0);
+    const int id_col = conf.get<int>("data.guess.id", conf.get<int>("data.guess.ref", 0));
     for(int i=0; i < header; ++i) src->ignore(2147483647, newline);
 
     // find a file holding trained network
@@ -400,6 +397,7 @@ void guess(const bpo::variables_map& args, const bpt::ptree& conf, std::shared_p
         const float *ids = net.blob_by_name("ids")->cpu_data();
         for(; i < guesses; ++i) {
            if(ids[i] < id) break;               // if we loop in data, break
+           for(int c=0; c<id_col;++c) src->ignore(2147483647, separator);  // find position of ID/REF
            src->getline(buff, 255, separator);  // obtain REF; we expect it to be in the first column
            src->ignore(2147483647, newline);    // skip the rest of row
            results << buff << separator << guess[2*i] << separator << guess[2*i+1] << newline;
