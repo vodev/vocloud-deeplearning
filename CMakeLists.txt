@@ -54,6 +54,9 @@ if(Boost_FOUND)
   target_link_libraries(vodigger ${Boost_LIBRARIES})
 endif()
 
+# necessary because of Caffe's includes
+find_package(HDF5 COMPONENTS HL REQUIRED)
+include_directories(${HDF5_INCLUDE_DIRS} ${HDF5_HL_INCLUDE_DIR})
 
 find_library(LIB_GLOG glog)
 if(${LIB_GLOG} STREQUAL LIB_GLOG-NOTFOUND)
