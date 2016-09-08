@@ -207,7 +207,7 @@ void net_param_from_config_and_model(caffe::NetParameter *net, Phase phase,
     // append output layers necessary for statistics
     if(phase == Phase::TRAIN || phase == Phase::TEST)
     {
-        // append necesary layer for training and testing -- a loss layer (if it isn't there already)
+        // append necessary layer for training and testing -- a loss layer (if it isn't there already)
         bool has_loss = false;
         for(int i = 0; i < net->layer_size(); ++i)
             if(net->layer(i).type() == "SoftmaxWithLoss")
@@ -225,7 +225,7 @@ void net_param_from_config_and_model(caffe::NetParameter *net, Phase phase,
 
     if(phase == Phase::TEST)
     {
-        // append necesary layer for testing -- an accuracy layer (if it isn't there already)
+        // append necessary layer for testing -- an accuracy layer (if it isn't there already)
         bool has_accuracy = false;
         for(int i = 0; i < net->layer_size(); ++i)
             if(net->layer(i).type() == "Accuracy")
